@@ -324,6 +324,7 @@ function parseEduzzCSV(text){
       "Telefone":          obj["cus_cel"]||"",
       "CPF Comprador":     obj["student_taxnumber"]||"",
       "Taxa da plataforma":obj["eduzz_value"]||"0",
+      "Valor da fatura":   obj["trans_value"]||"0",
       "Valor do produto":  obj["trans_items[0].item_value"]||"0",
       "Nome do produto":   obj["trans_items[0].item_product_name"]||"",
       "Valor order bump 01":  obj["trans_items[1].item_value"]||"",
@@ -466,31 +467,34 @@ async function loadData(){
     const eduzzRows = parseEduzzCSV(eduzzText);
 
     // Vendas por dia (Principal/Tráfego) — só status Paga (3)
+    // Usa trans_value (valor total da fatura = Manual + OBs) para faturamento/ROAS/ticket/lucro
     const vD={};
     const vByAd={};    // {adId: {qtd,valor,taxa}}
     const vByAdDate={}; // {adId: {date: {qtd,valor,taxa}}}
     for(const r of eduzzRows){
       if(r["Status da compra"]!=="3") continue; // só Paga para métricas de vendas
       const d=toISO(r["Data da compra"]);if(!d)continue;
-      // Conta apenas o produto principal (item[0]) para métricas de vendas do Manual
+      // Conta apenas faturas onde o produto principal é o Manual Definitivo
       const nomeProd=(r["Nome do produto"]||"").toUpperCase();
       if(!nomeProd.includes("MANUAL DEFINITIVO")) continue;
+      const valorFatura=parseBRL(r["Valor da fatura"]);
+      const taxa=parseBRLAbs(r["Taxa da plataforma"]);
       if(!vD[d])vD[d]={qtd:0,valor:0,taxa:0};
       vD[d].qtd   += 1;
-      vD[d].valor += parseBRL(r["Valor do produto"]);
-      vD[d].taxa  += parseBRLAbs(r["Taxa da plataforma"]);
+      vD[d].valor += valorFatura;
+      vD[d].taxa  += taxa;
       // Por anúncio
       const adId=r["Ad Id"];
       if(adId){
         if(!vByAd[adId])vByAd[adId]={qtd:0,valor:0,taxa:0};
         vByAd[adId].qtd   += 1;
-        vByAd[adId].valor += parseBRL(r["Valor do produto"]);
-        vByAd[adId].taxa  += parseBRLAbs(r["Taxa da plataforma"]);
+        vByAd[adId].valor += valorFatura;
+        vByAd[adId].taxa  += taxa;
         if(!vByAdDate[adId]) vByAdDate[adId]={};
         if(!vByAdDate[adId][d]) vByAdDate[adId][d]={qtd:0,valor:0,taxa:0};
         vByAdDate[adId][d].qtd   += 1;
-        vByAdDate[adId][d].valor += parseBRL(r["Valor do produto"]);
-        vByAdDate[adId][d].taxa  += parseBRLAbs(r["Taxa da plataforma"]);
+        vByAdDate[adId][d].valor += valorFatura;
+        vByAdDate[adId][d].taxa  += taxa;
       }
     }
     S.vendas=vD;
