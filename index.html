@@ -358,8 +358,12 @@ function extractAdvCodeFromContent(content){
 // ── Base histórica manual — formato vertical (dd/mm/yyyy, status texto) ───
 // Colunas: Data da compra | Status da compra | Nome | Email | Telefone |
 //          CPF Comprador | Taxa da plataforma | Valor do produto | Nome do produto
-// Status já vem em texto ("Paga", "Reembolsado", etc.) — não precisa normalizar
+// Status vem em texto e é convertido aqui para código numérico (igual ao webhook).
 // Não há Ad Id nem OBs inline; cada linha é 1 produto.
+const HIST_STATUS_CODE_MAP = {
+  "Paga":"3","Reembolsado":"7","Em Recuperacao":"11",
+  "Aguardando Reembolso":"6","Aberta":"1","Aguardando Pagamento":"1",
+};
 function parseManualHistCSV(text){
   function splitCSVLine(line){
     const out=[];let cur="";let inQ=false;
@@ -380,15 +384,17 @@ function parseManualHistCSV(text){
     const cols=splitCSVLine(lines[i]);
     const obj={};
     header.forEach((h,j)=>{ obj[h]=(cols[j]||"").trim(); });
-    const rawDate=obj["Data da compra"]||"";
-    const st=obj["Status da compra"]||"";
-    if(!rawDate||!st) continue;
-    // Converte dd/mm/yyyy → yyyy-mm-dd (sem hora — esses registros não têm)
+    const rawDate=(obj["Data da compra"]||"").split(" ")[0]; // remove horário se existir
+    const stText=obj["Status da compra"]||"";
+    if(!rawDate||!stText) continue;
+    // Converte dd/mm/yyyy → yyyy-mm-dd
     const dp=rawDate.split("/");
     const isoDate=dp.length===3?`${dp[2]}-${dp[1].padStart(2,"0")}-${dp[0].padStart(2,"0")}`:rawDate;
+    // Converte status texto → código numérico igual ao webhook
+    const st = HIST_STATUS_CODE_MAP[stText] || stText;
     rows.push({
       "Data da compra":     isoDate,           // yyyy-mm-dd (sem hora)
-      "Status da compra":   st,                // texto: "Paga", "Reembolsado", etc.
+      "Status da compra":   st,                // código: "3", "7", "11", etc.
       "Nome":               obj["Nome"]||"",
       "Email":              obj["Email"]||"",
       "Telefone":           obj["Telefone"]||"",
@@ -536,18 +542,9 @@ async function loadData(){
     // Exclui linhas >= HIST_CUTOFF para não duplicar com o webhook.
     const HIST_CUTOFF = "2026-06-04";
     const histRowsRaw = histText ? parseManualHistCSV(histText) : [];
-    // parseManualHistCSV já retorna status em texto; precisamos converter para
-    // código numérico pois todo o restante do código faz `=== "3"` para Paga.
-    const HIST_STATUS_CODE = {
-      "Paga":"3","Reembolsado":"7","Em Recuperacao":"11",
-      "Aguardando Reembolso":"6","Aberta":"1","Aguardando Pagamento":"1",
-    };
+    // Status já vem convertido para código numérico dentro de parseManualHistCSV.
     const histRows = histRowsRaw
-      .filter(r => (r["Data da compra"]||"").slice(0,10) < HIST_CUTOFF)
-      .map(r => ({
-        ...r,
-        "Status da compra": HIST_STATUS_CODE[r["Status da compra"]] || r["Status da compra"],
-      }));
+      .filter(r => (r["Data da compra"]||"").slice(0,10) < HIST_CUTOFF);
 
     // Conjunto completo para o funil (expandFunilRows + dedup)
     const allEduzzRows = [...eduzzRows, ...histRows];
