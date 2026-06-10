@@ -356,10 +356,8 @@ function extractAdvCodeFromContent(content){
 }
 
 // ── Base histórica manual — formato vertical (dd/mm/yyyy, status texto) ───
-// Colunas: Data da compra | Status da compra | Nome | Email | Telefone |
-//          CPF Comprador | Taxa da plataforma | Valor do produto | Nome do produto
-// Status vem em texto e é convertido aqui para código numérico (igual ao webhook).
-// Não há Ad Id nem OBs inline; cada linha é 1 produto.
+// Cada linha é 1 produto. Agrupa por fatura (email+data+hora) para calcular
+// o valor total da fatura (Manual + OBs), igual ao trans_value do webhook.
 const HIST_STATUS_CODE_MAP = {
   "Paga":"3","Reembolsado":"7","Em Recuperacao":"11",
   "Aguardando Reembolso":"6","Aberta":"1","Aguardando Pagamento":"1",
@@ -379,40 +377,80 @@ function parseManualHistCSV(text){
   const lines=text.split(/\r?\n/).filter(l=>l.trim());
   if(lines.length<2) return [];
   const header=splitCSVLine(lines[0]).map(h=>h.trim());
-  const rows=[];
+
+  // Passo 1: lê todas as linhas brutas
+  const rawLines=[];
   for(let i=1;i<lines.length;i++){
     const cols=splitCSVLine(lines[i]);
     const obj={};
     header.forEach((h,j)=>{ obj[h]=(cols[j]||"").trim(); });
-    const rawDate=(obj["Data da compra"]||"").split(" ")[0]; // remove horário se existir
+    const rawDate=obj["Data da compra"]||"";
     const stText=obj["Status da compra"]||"";
     if(!rawDate||!stText) continue;
-    // Converte dd/mm/yyyy → yyyy-mm-dd
-    const dp=rawDate.split("/");
-    const isoDate=dp.length===3?`${dp[2]}-${dp[1].padStart(2,"0")}-${dp[0].padStart(2,"0")}`:rawDate;
-    // Converte status texto → código numérico igual ao webhook
-    const st = HIST_STATUS_CODE_MAP[stText] || stText;
+    const datePart=rawDate.split(" ")[0];
+    const timePart=rawDate.includes(" ")?rawDate.split(" ")[1]:"00:00:00";
+    const dp=datePart.split("/");
+    const isoDate=dp.length===3?`${dp[2]}-${dp[1].padStart(2,"0")}-${dp[0].padStart(2,"0")}`:datePart;
+    const isoDateTime=isoDate+"T"+timePart;
+    const st=HIST_STATUS_CODE_MAP[stText]||stText;
+    const val=parseBRL(obj["Valor do produto"]||"0");
+    const taxa=parseBRLAbs(obj["Taxa da plataforma"]||"0");
+    rawLines.push({
+      isoDate, isoDateTime, st,
+      nome:  obj["Nome"]||"",
+      email: (obj["Email"]||"").toLowerCase().trim(),
+      tel:   obj["Telefone"]||"",
+      cpf:   obj["CPF Comprador"]||"",
+      taxa, val,
+      prod:  obj["Nome do produto"]||"",
+    });
+  }
+
+  // Passo 2: agrupa por fatura (identity + data+hora até o minuto + status)
+  const faturas=new Map();
+  for(const r of rawLines){
+    const identity=r.email||r.cpf.replace(/[^\d]/g,"")||r.tel.replace(/[^\d]/g,"");
+    if(!identity) continue;
+    const key=identity+"|"+r.isoDateTime.slice(0,16)+"|"+r.st;
+    if(!faturas.has(key)){
+      faturas.set(key,{
+        isoDate:r.isoDate,isoDateTime:r.isoDateTime,st:r.st,
+        nome:r.nome,email:r.email,tel:r.tel,cpf:r.cpf,
+        taxa:r.taxa,faturaTotal:0,prodManual:"",hasManual:false,
+      });
+    }
+    const f=faturas.get(key);
+    f.faturaTotal+=r.val;
+    if(/MANUAL DEFINITIVO/i.test(r.prod)){
+      f.hasManual=true;
+      f.prodManual=r.prod;
+      f.taxa=r.taxa;
+    }
+  }
+
+  // Passo 3: emite 1 linha por fatura (só as que têm produto classificável no funil)
+  const rows=[];
+  for(const [,f] of faturas){
+    if(!f.prodManual && !f.faturaTotal) continue;
     rows.push({
-      "Data da compra":     isoDate,           // yyyy-mm-dd (sem hora)
-      "Status da compra":   st,                // código: "3", "7", "11", etc.
-      "Nome":               obj["Nome"]||"",
-      "Email":              obj["Email"]||"",
-      "Telefone":           obj["Telefone"]||"",
-      "CPF Comprador":      obj["CPF Comprador"]||"",
-      "Taxa da plataforma": obj["Taxa da plataforma"]||"0",
-      "Valor da fatura":    obj["Valor do produto"]||"0", // sem campo de fatura — usa valor do produto
-      "Valor do produto":   obj["Valor do produto"]||"0",
-      "Nome do produto":    obj["Nome do produto"]||"",
-      // sem OBs inline nesse formato
-      "Valor order bump 01":"", "Nome do orderbump 01":"",
-      "Valor order bump 02":"", "Nome do orderbump 02":"",
-      "utm_content":"", "Ad Id":null, "Ad Name":null,
-      "_source":"manual_hist", // marca a origem para evitar re-deduplicação errada
+      "Data da compra":     f.isoDate,
+      "Status da compra":   f.st,
+      "Nome":               f.nome,
+      "Email":              f.email,
+      "Telefone":           f.tel,
+      "CPF Comprador":      f.cpf,
+      "Taxa da plataforma": String(f.taxa),
+      "Valor da fatura":    String(f.faturaTotal),
+      "Valor do produto":   String(f.faturaTotal),
+      "Nome do produto":    f.prodManual||"",
+      "Valor order bump 01":"","Nome do orderbump 01":"",
+      "Valor order bump 02":"","Nome do orderbump 02":"",
+      "utm_content":"","Ad Id":null,"Ad Name":null,
+      "_source":"manual_hist",
     });
   }
   return rows;
 }
-
 // Status color
 function statusColor(val,meta,higherIsBetter){
   if(!val||val===0)return "#1c1410";
