@@ -168,9 +168,13 @@ const IS_FILE = location.protocol === "file:";
 const API_KEY  = "AIzaSyDxMp-u0RUfy-Xv0jICULZbJGpuAUxqQPI";
 const SHEET_ID_META = "1gaMsxGBZ75oVeDJYQo0vdrW6PGoPC4DuxBmkbJ_Yf9s";
 const URL_META   = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID_META}/values/${encodeURIComponent("Base Meta")}?key=${API_KEY}`;
-// Eduzz — CSV público (Página1). Vendas e Funil usam a mesma fonte.
+// Eduzz — CSV público (webhook automático, a partir de 04/06/2026 19:25)
 const EDUZZ_SHEET_ID = "1fngH_YHSCXee-K1F2itRRirprw2AnhUFTw3MFu73AZ8";
 const URL_EDUZZ = `https://docs.google.com/spreadsheets/d/${EDUZZ_SHEET_ID}/export?format=csv&gid=0`;
+// Base histórica manual (01/09/2025 → 04/06/2026 19:25) — formato vertical, status em texto
+const MANUAL_HIST_SHEET_ID = "1fngH_YHSCXee-K1F2itRRirprw2AnhUFTw3MFu73AZ8";
+const MANUAL_HIST_GID      = "1165296371"; // aba: Base Vendas - Completo - manual
+const URL_MANUAL_HIST = `https://docs.google.com/spreadsheets/d/${MANUAL_HIST_SHEET_ID}/export?format=csv&gid=${MANUAL_HIST_GID}`;
 
 // Mapeamento do funil — ordem importa
 const FUNIL_PRODUTOS = [
@@ -351,6 +355,58 @@ function extractAdvCodeFromContent(content){
   return extractAdvCode(namePart);
 }
 
+// ── Base histórica manual — formato vertical (dd/mm/yyyy, status texto) ───
+// Colunas: Data da compra | Status da compra | Nome | Email | Telefone |
+//          CPF Comprador | Taxa da plataforma | Valor do produto | Nome do produto
+// Status já vem em texto ("Paga", "Reembolsado", etc.) — não precisa normalizar
+// Não há Ad Id nem OBs inline; cada linha é 1 produto.
+function parseManualHistCSV(text){
+  function splitCSVLine(line){
+    const out=[];let cur="";let inQ=false;
+    for(let i=0;i<line.length;i++){
+      const c=line[i];
+      if(c==='"'){ if(inQ&&line[i+1]==='"'){ cur+='"';i++; } else inQ=!inQ; }
+      else if(c===","&&!inQ){ out.push(cur);cur=""; }
+      else cur+=c;
+    }
+    out.push(cur);
+    return out;
+  }
+  const lines=text.split(/\r?\n/).filter(l=>l.trim());
+  if(lines.length<2) return [];
+  const header=splitCSVLine(lines[0]).map(h=>h.trim());
+  const rows=[];
+  for(let i=1;i<lines.length;i++){
+    const cols=splitCSVLine(lines[i]);
+    const obj={};
+    header.forEach((h,j)=>{ obj[h]=(cols[j]||"").trim(); });
+    const rawDate=obj["Data da compra"]||"";
+    const st=obj["Status da compra"]||"";
+    if(!rawDate||!st) continue;
+    // Converte dd/mm/yyyy → yyyy-mm-dd (sem hora — esses registros não têm)
+    const dp=rawDate.split("/");
+    const isoDate=dp.length===3?`${dp[2]}-${dp[1].padStart(2,"0")}-${dp[0].padStart(2,"0")}`:rawDate;
+    rows.push({
+      "Data da compra":     isoDate,           // yyyy-mm-dd (sem hora)
+      "Status da compra":   st,                // texto: "Paga", "Reembolsado", etc.
+      "Nome":               obj["Nome"]||"",
+      "Email":              obj["Email"]||"",
+      "Telefone":           obj["Telefone"]||"",
+      "CPF Comprador":      obj["CPF Comprador"]||"",
+      "Taxa da plataforma": obj["Taxa da plataforma"]||"0",
+      "Valor da fatura":    obj["Valor do produto"]||"0", // sem campo de fatura — usa valor do produto
+      "Valor do produto":   obj["Valor do produto"]||"0",
+      "Nome do produto":    obj["Nome do produto"]||"",
+      // sem OBs inline nesse formato
+      "Valor order bump 01":"", "Nome do orderbump 01":"",
+      "Valor order bump 02":"", "Nome do orderbump 02":"",
+      "utm_content":"", "Ad Id":null, "Ad Name":null,
+      "_source":"manual_hist", // marca a origem para evitar re-deduplicação errada
+    });
+  }
+  return rows;
+}
+
 // Status color
 function statusColor(val,meta,higherIsBetter){
   if(!val||val===0)return "#1c1410";
@@ -419,11 +475,20 @@ async function loadData(){
       S.error="Tempo esgotado. Verifique a conexão e tente atualizar.";render();}
   },90000);
   try {
-    // Carrega Meta (Sheets API) e Eduzz (CSV público) em paralelo
-    const [mr, er] = await Promise.all([fetch(URL_META), fetch(URL_EDUZZ)]);
+    // Carrega Meta, Eduzz (webhook automático) e base histórica manual em paralelo
+    const [mr, er, hr] = await Promise.all([
+      fetch(URL_META),
+      fetch(URL_EDUZZ),
+      fetch(URL_MANUAL_HIST),
+    ]);
     if(!mr.ok) throw new Error(`HTTP ${mr.status} ao carregar Meta`);
     if(!er.ok) throw new Error(`HTTP ${er.status} ao carregar Eduzz`);
-    const [mj, eduzzText] = await Promise.all([mr.json(), er.text()]);
+    // Base histórica é opcional — se falhar, continua sem ela
+    const [mj, eduzzText, histText] = await Promise.all([
+      mr.json(),
+      er.text(),
+      hr.ok ? hr.text() : Promise.resolve(""),
+    ]);
 
     // ── Meta — por dia e por anúncio ──────────────────────────────────────
     const mD={};
@@ -463,27 +528,49 @@ async function loadData(){
     S.metaByAd=mByAd;
     S.metaByAdByDate=mByAdByDate;
 
-    // ── Eduzz — parse CSV (status 3/7/11 apenas) ─────────────────────────
+    // ── Eduzz — parse CSV (webhook automático: status 3/7/11) ────────────
     const eduzzRows = parseEduzzCSV(eduzzText);
 
-    // Vendas por dia (Principal/Tráfego) — só status Paga (3)
-    // Usa trans_value (valor total da fatura = Manual + OBs) para faturamento/ROAS/ticket/lucro
+    // ── Base histórica manual (01/09/2025 → 04/06/2026) ──────────────────
+    // Formato vertical, status em texto, sem Ad Id.
+    // Exclui linhas >= HIST_CUTOFF para não duplicar com o webhook.
+    const HIST_CUTOFF = "2026-06-04";
+    const histRowsRaw = histText ? parseManualHistCSV(histText) : [];
+    // parseManualHistCSV já retorna status em texto; precisamos converter para
+    // código numérico pois todo o restante do código faz `=== "3"` para Paga.
+    const HIST_STATUS_CODE = {
+      "Paga":"3","Reembolsado":"7","Em Recuperacao":"11",
+      "Aguardando Reembolso":"6","Aberta":"1","Aguardando Pagamento":"1",
+    };
+    const histRows = histRowsRaw
+      .filter(r => (r["Data da compra"]||"").slice(0,10) < HIST_CUTOFF)
+      .map(r => ({
+        ...r,
+        "Status da compra": HIST_STATUS_CODE[r["Status da compra"]] || r["Status da compra"],
+      }));
+
+    // Conjunto completo para o funil (expandFunilRows + dedup)
+    const allEduzzRows = [...eduzzRows, ...histRows];
+
+    // Vendas por dia (Principal/Tráfego) — só status Paga ("3")
+    // Usa "Valor da fatura" (webhook) ou "Valor do produto" (histórico) para faturamento.
     const vD={};
     const vByAd={};    // {adId: {qtd,valor,taxa}}
     const vByAdDate={}; // {adId: {date: {qtd,valor,taxa}}}
-    for(const r of eduzzRows){
+    for(const r of allEduzzRows){
       if(r["Status da compra"]!=="3") continue; // só Paga para métricas de vendas
       const d=toISO(r["Data da compra"]);if(!d)continue;
       // Conta apenas faturas onde o produto principal é o Manual Definitivo
       const nomeProd=(r["Nome do produto"]||"").toUpperCase();
       if(!nomeProd.includes("MANUAL DEFINITIVO")) continue;
-      const valorFatura=parseBRL(r["Valor da fatura"]);
+      // Webhook tem "Valor da fatura" (Manual + OBs); histórico usa "Valor do produto"
+      const valorFatura=parseBRL(r["Valor da fatura"])||parseBRL(r["Valor do produto"]);
       const taxa=parseBRLAbs(r["Taxa da plataforma"]);
       if(!vD[d])vD[d]={qtd:0,valor:0,taxa:0};
       vD[d].qtd   += 1;
       vD[d].valor += valorFatura;
       vD[d].taxa  += taxa;
-      // Por anúncio
+      // Por anúncio — só webhook tem Ad Id; histórico não contribui aqui
       const adId=r["Ad Id"];
       if(adId){
         if(!vByAd[adId])vByAd[adId]={qtd:0,valor:0,taxa:0};
@@ -501,20 +588,21 @@ async function loadData(){
     S.vendasByAd=vByAd;
     S.vendasByAdDate=vByAdDate;
 
-    // ── Funil — usa mesma fonte Eduzz (todas as linhas, status 3/7/11) ───
-    // eduzzRows já tem os campos mapeados; expandFunilRows lida com OBs inline
-    S.funilRows = deduplicateFunilRows(expandFunilRows(eduzzRows));
+    // ── Funil — usa todas as linhas (webhook + histórico manual) ──────────
+    // expandFunilRows lida com OBs inline do webhook; histórico vem 1 produto/linha
+    S.funilRows = deduplicateFunilRows(expandFunilRows(allEduzzRows));
     try{ S.funil = buildFunilData(S.funilRows, S.fStartDate, S.fEndDate); }
     catch(fe){ console.error("buildFunilData error:",fe); S.funil={}; }
 
     // "Atualizado em" = data/hora da última venda Paga do Manual Definitivo
+    // Busca em allEduzzRows para cobrir também o histórico
     let lastManualSaleISO="";
     let lastManualSaleDisplay="";
-    for(const r of eduzzRows){
+    for(const r of allEduzzRows){
       const nm=(r["Nome do produto"]||"").toUpperCase();
       if(!nm.includes("MANUAL DEFINITIVO")) continue;
       if(r["Status da compra"]!=="3") continue;
-      const raw=(r["Data da compra"]||"").trim(); // "2026-06-04 19:25:24"
+      const raw=(r["Data da compra"]||"").trim(); // "2026-06-04 19:25:24" ou "2026-05-20"
       const isoFull=raw.replace(" ","T");
       if(isoFull > lastManualSaleISO){
         lastManualSaleISO=isoFull;
