@@ -165,16 +165,12 @@ input[type=date]::-webkit-calendar-picker-indicator{opacity:.5;cursor:pointer}
 
 <script>
 const IS_FILE = location.protocol === "file:";
-const API_KEY  = "AIzaSyDxMp-u0RUfy-Xv0jICULZbJGpuAUxqQPI";
 const SHEET_ID_META = "1gaMsxGBZ75oVeDJYQo0vdrW6PGoPC4DuxBmkbJ_Yf9s";
+const SHEET_ID_VENDAS = "1JlVCbaJwJYgfhJW4XZHptWlAeQdHUQcFDgpGyga-lBA";
+const API_KEY  = "AIzaSyDxMp-u0RUfy-Xv0jICULZbJGpuAUxqQPI";
 const URL_META   = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID_META}/values/${encodeURIComponent("Base Meta")}?key=${API_KEY}`;
-// Eduzz — CSV público (webhook automático, a partir de 04/06/2026 19:25)
-const EDUZZ_SHEET_ID = "1fngH_YHSCXee-K1F2itRRirprw2AnhUFTw3MFu73AZ8";
-const URL_EDUZZ = `https://docs.google.com/spreadsheets/d/${EDUZZ_SHEET_ID}/export?format=csv&gid=0`;
-// Base histórica manual (01/09/2025 → 04/06/2026 19:25) — formato vertical, status em texto
-const MANUAL_HIST_SHEET_ID = "1fngH_YHSCXee-K1F2itRRirprw2AnhUFTw3MFu73AZ8";
-const MANUAL_HIST_GID      = "1165296371"; // aba: Base Vendas - Completo - manual
-const URL_MANUAL_HIST = `https://docs.google.com/spreadsheets/d/${MANUAL_HIST_SHEET_ID}/export?format=csv&gid=${MANUAL_HIST_GID}`;
+const URL_VENDAS = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID_VENDAS}/values/${encodeURIComponent("📥 Base Vendas - Completo")}?key=${API_KEY}`;
+const URL_FUNIL  = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID_VENDAS}/values/${encodeURIComponent("📥 Base Vendas - Completo")}?key=${API_KEY}`;
 
 // Mapeamento do funil — ordem importa
 const FUNIL_PRODUTOS = [
@@ -265,7 +261,8 @@ function normalizeStatus(s){
     "6":"Aguardando Reembolso",
     "7":"Reembolsado",
     "10":"Expirado",
-    "11":"Em Recuperacao"
+    "11":"Em Recuperacao",
+    "15":""
   };
   const str=String(s).trim();
   return m[str]||str;
@@ -284,173 +281,6 @@ function fDate(iso){ if(!iso)return"";const[,m,d]=iso.split("-");return `${d}/${
 function fDateBR(iso){ if(!iso)return"";const[y,m,d]=iso.split("-");return `${d}/${m}/${y}`; }
 function parseSheet(json){ const rows=json.values||[];if(rows.length<2)return[];const h=rows[0];return rows.slice(1).map(r=>Object.fromEntries(h.map((k,i)=>[k,(r[i]||"").trim()]))); }
 
-// Parser CSV da Eduzz — retorna linhas mapeadas para nomes internos
-// Só processa status 3 (Paga), 7 (Reembolsado), 11 (Em Recuperacao)
-const EDUZZ_STATUS_ALLOW = new Set(["3","7","11"]);
-function parseEduzzCSV(text){
-  function splitCSVLine(line){
-    const out=[];let cur="";let inQ=false;
-    for(let i=0;i<line.length;i++){
-      const c=line[i];
-      if(c==='"'){ if(inQ&&line[i+1]==='"'){ cur+='"';i++; } else inQ=!inQ; }
-      else if(c===","&&!inQ){ out.push(cur);cur=""; }
-      else cur+=c;
-    }
-    out.push(cur);
-    return out;
-  }
-  const lines=text.split(/\r?\n/).filter(l=>l.trim());
-  if(lines.length<2) return [];
-  const header=splitCSVLine(lines[0]);
-  const rows=[];
-  for(let i=1;i<lines.length;i++){
-    const cols=splitCSVLine(lines[i]);
-    const obj={};
-    header.forEach((h,j)=>{ obj[h.trim()]=(cols[j]||"").trim(); });
-    const st=(obj["trans_status"]||"").trim();
-    if(!EDUZZ_STATUS_ALLOW.has(st)) continue;
-    // Data: "20260604" + "T" + "19:25:24" → converte para ISO
-    const rawDate=obj["trans_createdate"]||"";
-    const rawTime=obj["trans_createtime"]||"00:00:00";
-    // trans_createdate vem como yyyymmdd ou yyyy-mm-dd
-    let isoDate="";
-    if(/^\d{8}$/.test(rawDate)){
-      isoDate=rawDate.slice(0,4)+"-"+rawDate.slice(4,6)+"-"+rawDate.slice(6,8);
-    } else {
-      isoDate=rawDate.replace(/\//g,"-");
-    }
-    const content=obj["utm_content"]||"";
-    rows.push({
-      "Data da compra":    isoDate+" "+rawTime,
-      "Status da compra":  st,
-      "Nome":              obj["cus_name"]||"",
-      "Email":             obj["cus_email"]||"",
-      "Telefone":          obj["cus_cel"]||"",
-      "CPF Comprador":     obj["student_taxnumber"]||"",
-      "Taxa da plataforma":obj["eduzz_value"]||"0",
-      "Valor da fatura":   obj["trans_value"]||"0",
-      "Valor do produto":  obj["trans_items[0].item_value"]||"0",
-      "Nome do produto":   obj["trans_items[0].item_product_name"]||"",
-      "Valor order bump 01":  obj["trans_items[1].item_value"]||"",
-      "Nome do orderbump 01": obj["trans_items[1].item_product_name"]||"",
-      "Valor order bump 02":  obj["trans_items[2].item_value"]||"",
-      "Nome do orderbump 02": obj["trans_items[2].item_product_name"]||"",
-      "utm_content":       content,
-      "Ad Id":             extractAdIdFromContent(content),
-      "Ad Name":           extractAdvCodeFromContent(content),
-    });
-  }
-  return rows;
-}
-// Extrai Ad ID numérico do utm_content: "nome-adv289|120247448870650228::lixo" → "120247448870650228"
-function extractAdIdFromContent(content){
-  if(!content) return null;
-  const m=content.match(/\|(\d{15,20})/);
-  return m ? m[1] : extractAdId(content);
-}
-// Extrai advCode do utm_content: "manual_defin-venda-adv289|..." → "adv289"
-function extractAdvCodeFromContent(content){
-  if(!content) return null;
-  const namePart=content.split("|")[0]||"";
-  return extractAdvCode(namePart);
-}
-
-// ── Base histórica manual — formato vertical (dd/mm/yyyy, status texto) ───
-// Cada linha é 1 produto. Agrupa por fatura (email+data+hora) para calcular
-// o valor total da fatura (Manual + OBs), igual ao trans_value do webhook.
-const HIST_STATUS_CODE_MAP = {
-  "Paga":"3","Reembolsado":"7","Em Recuperacao":"11",
-  "Aguardando Reembolso":"6","Aberta":"1","Aguardando Pagamento":"1",
-};
-function parseManualHistCSV(text){
-  function splitCSVLine(line){
-    const out=[];let cur="";let inQ=false;
-    for(let i=0;i<line.length;i++){
-      const c=line[i];
-      if(c==='"'){ if(inQ&&line[i+1]==='"'){ cur+='"';i++; } else inQ=!inQ; }
-      else if(c===","&&!inQ){ out.push(cur);cur=""; }
-      else cur+=c;
-    }
-    out.push(cur);
-    return out;
-  }
-  const lines=text.split(/\r?\n/).filter(l=>l.trim());
-  if(lines.length<2) return [];
-  const header=splitCSVLine(lines[0]).map(h=>h.trim());
-
-  // Passo 1: lê todas as linhas brutas
-  const rawLines=[];
-  for(let i=1;i<lines.length;i++){
-    const cols=splitCSVLine(lines[i]);
-    const obj={};
-    header.forEach((h,j)=>{ obj[h]=(cols[j]||"").trim(); });
-    const rawDate=obj["Data da compra"]||"";
-    const stText=obj["Status da compra"]||"";
-    if(!rawDate||!stText) continue;
-    const datePart=rawDate.split(" ")[0];
-    const timePart=rawDate.includes(" ")?rawDate.split(" ")[1]:"00:00:00";
-    const dp=datePart.split("/");
-    const isoDate=dp.length===3?`${dp[2]}-${dp[1].padStart(2,"0")}-${dp[0].padStart(2,"0")}`:datePart;
-    const isoDateTime=isoDate+"T"+timePart;
-    const st=HIST_STATUS_CODE_MAP[stText]||stText;
-    const val=parseBRL(obj["Valor do produto"]||"0");
-    const taxa=parseBRLAbs(obj["Taxa da plataforma"]||"0");
-    rawLines.push({
-      isoDate, isoDateTime, st,
-      nome:  obj["Nome"]||"",
-      email: (obj["Email"]||"").toLowerCase().trim(),
-      tel:   obj["Telefone"]||"",
-      cpf:   obj["CPF Comprador"]||"",
-      taxa, val,
-      prod:  obj["Nome do produto"]||"",
-    });
-  }
-
-  // Passo 2: agrupa por fatura (identity + data+hora até o minuto + status)
-  const faturas=new Map();
-  for(const r of rawLines){
-    const identity=r.email||r.cpf.replace(/[^\d]/g,"")||r.tel.replace(/[^\d]/g,"");
-    if(!identity) continue;
-    const key=identity+"|"+r.isoDateTime.slice(0,16)+"|"+r.st;
-    if(!faturas.has(key)){
-      faturas.set(key,{
-        isoDate:r.isoDate,isoDateTime:r.isoDateTime,st:r.st,
-        nome:r.nome,email:r.email,tel:r.tel,cpf:r.cpf,
-        taxa:r.taxa,faturaTotal:0,prodManual:"",hasManual:false,
-      });
-    }
-    const f=faturas.get(key);
-    f.faturaTotal+=r.val;
-    if(/MANUAL DEFINITIVO/i.test(r.prod)){
-      f.hasManual=true;
-      f.prodManual=r.prod;
-      f.taxa=r.taxa;
-    }
-  }
-
-  // Passo 3: emite 1 linha por fatura (só as que têm produto classificável no funil)
-  const rows=[];
-  for(const [,f] of faturas){
-    if(!f.prodManual && !f.faturaTotal) continue;
-    rows.push({
-      "Data da compra":     f.isoDate,
-      "Status da compra":   f.st,
-      "Nome":               f.nome,
-      "Email":              f.email,
-      "Telefone":           f.tel,
-      "CPF Comprador":      f.cpf,
-      "Taxa da plataforma": String(f.taxa),
-      "Valor da fatura":    String(f.faturaTotal),
-      "Valor do produto":   String(f.faturaTotal),
-      "Nome do produto":    f.prodManual||"",
-      "Valor order bump 01":"","Nome do orderbump 01":"",
-      "Valor order bump 02":"","Nome do orderbump 02":"",
-      "utm_content":"","Ad Id":null,"Ad Name":null,
-      "_source":"manual_hist",
-    });
-  }
-  return rows;
-}
 // Status color
 function statusColor(val,meta,higherIsBetter){
   if(!val||val===0)return "#1c1410";
@@ -514,32 +344,27 @@ async function loadData(){
   if(IS_FILE){ S.firstLoad=false;render();return; }
   S.loading=true;S.error=null;
   if(!S.firstLoad) render();
+  // Timeout de segurança: se demorar >25s libera a tela
   const _t=setTimeout(()=>{
     if(S.firstLoad){S.firstLoad=false;S.loading=false;
       S.error="Tempo esgotado. Verifique a conexão e tente atualizar.";render();}
   },90000);
   try {
-    // Carrega Meta, Eduzz (webhook automático) e base histórica manual em paralelo
-    const [mr, er, hr] = await Promise.all([
-      fetch(URL_META),
-      fetch(URL_EDUZZ),
-      fetch(URL_MANUAL_HIST),
-    ]);
-    if(!mr.ok) throw new Error(`HTTP ${mr.status} ao carregar Meta`);
-    if(!er.ok) throw new Error(`HTTP ${er.status} ao carregar Eduzz`);
-    // Base histórica é opcional — se falhar, continua sem ela
-    const [mj, eduzzText, histText] = await Promise.all([
-      mr.json(),
-      er.text(),
-      hr.ok ? hr.text() : Promise.resolve(""),
-    ]);
+    const [mr,vr]=await Promise.all([fetch(URL_META),fetch(URL_VENDAS)]);
+    if(!mr.ok)throw new Error(`HTTP ${mr.status} ao carregar Meta`);
+    if(!vr.ok)throw new Error(`HTTP ${vr.status} ao carregar Vendas`);
+    const [mj,vj]=await Promise.all([mr.json(),vr.json()]);
+    // Funil usa a mesma planilha de vendas
+    const fj=vj;
 
-    // ── Meta — por dia e por anúncio ──────────────────────────────────────
+    // Meta — por dia (para abas Principal e Tráfego)
     const mD={};
+    // Meta — por Ad ID (para aba Anúncios)
     const mByAd={};
-    const mByAdByDate={};
+    const mByAdByDate={};  // {advCode: {date: {spend,clicks,impressions}}}
     for(const r of parseSheet(mj)){
       const d=toISO(r["Date"]);if(!d)continue;
+      // Por dia
       if(!mD[d])mD[d]={spend:0,clicks:0,impressions:0,landingViews:0,checkouts:0,purchases:0,viewContent:0};
       mD[d].spend        += parseBRL(r["Spend (Cost, Amount Spent)"]);
       mD[d].clicks       += parseInt(r["Action Link Clicks"]||0)||0;
@@ -547,6 +372,7 @@ async function loadData(){
       mD[d].landingViews += parseInt(r["Action Landing Page View"]||0)||0;
       mD[d].checkouts    += parseInt(r["Action FB Pixel Initiate Checkout (Offsite Conversion)"]||0)||0;
       mD[d].viewContent  += parseInt(r["Action Omni View Content"]||0)||0;
+      // Por anúncio
       const adId=r["Ad ID"]||r["Ad Id"]||"";
       const adName=r["Ad Name"]||"";
       const igUrl=r["Instagram Permalink URL"]||"";
@@ -559,6 +385,7 @@ async function loadData(){
         mByAd[advCode].impressions += parseInt(r["Impressions"]||0)||0;
         mByAd[advCode].dates.add(d);
         if(igUrl && !mByAd[advCode].igUrl) mByAd[advCode].igUrl=igUrl;
+        // Por data (para filtrar por período na aba Anúncios)
         if(!mByAdByDate[advCode]) mByAdByDate[advCode]={};
         if(!mByAdByDate[advCode][d]) mByAdByDate[advCode][d]={spend:0,clicks:0,impressions:0,adIds:new Set(),igUrl:""};
         mByAdByDate[advCode][d].spend       += parseBRL(r["Spend (Cost, Amount Spent)"]);
@@ -572,84 +399,82 @@ async function loadData(){
     S.metaByAd=mByAd;
     S.metaByAdByDate=mByAdByDate;
 
-    // ── Eduzz — parse CSV (webhook automático: status 3/7/11) ────────────
-    const eduzzRows = parseEduzzCSV(eduzzText);
-
-    // ── Base histórica manual (01/09/2025 → 04/06/2026) ──────────────────
-    // Formato vertical, status em texto, sem Ad Id.
-    // Exclui linhas >= HIST_CUTOFF para não duplicar com o webhook.
-    const HIST_CUTOFF = "2026-06-04";
-    const histRowsRaw = histText ? parseManualHistCSV(histText) : [];
-    // Status já vem convertido para código numérico dentro de parseManualHistCSV.
-    const histRows = histRowsRaw
-      .filter(r => (r["Data da compra"]||"").slice(0,10) < HIST_CUTOFF);
-
-    // Conjunto completo para o funil (expandFunilRows + dedup)
-    const allEduzzRows = [...eduzzRows, ...histRows];
-
-    // Vendas por dia (Principal/Tráfego) — só status Paga ("3")
-    // Usa "Valor da fatura" (webhook) ou "Valor do produto" (histórico) para faturamento.
+    // Vendas — por dia (Principal/Tráfego) e por Ad ID (Anúncios)
+    // Nova planilha: "Data da compra", status numérico, só Paga (3) conta para faturamento/qtd
     const vD={};
-    const vByAd={};    // {adId: {qtd,valor,taxa}}
-    const vByAdDate={}; // {adId: {date: {qtd,valor,taxa}}}
-    for(const r of allEduzzRows){
-      if(r["Status da compra"]!=="3") continue; // só Paga para métricas de vendas
+    const vByAd={};
+    const vByAdDate={};  // {adId: {date: {qtd,valor,taxa}}}
+    for(const r of parseSheet(vj)){
+      const st=normalizeStatus((r["Status da compra"]||"").trim());
+      if(st!=="Paga") continue;
       const d=toISO(r["Data da compra"]);if(!d)continue;
-      // Conta apenas faturas onde o produto principal é o Manual Definitivo
-      const nomeProd=(r["Nome do produto"]||"").toUpperCase();
-      if(!nomeProd.includes("MANUAL DEFINITIVO")) continue;
-      // Webhook tem "Valor da fatura" (Manual + OBs); histórico usa "Valor do produto"
-      const valorFatura=parseBRL(r["Valor da fatura"])||parseBRL(r["Valor do produto"]);
-      const taxa=parseBRLAbs(r["Taxa da plataforma"]);
+      // Por dia
       if(!vD[d])vD[d]={qtd:0,valor:0,taxa:0};
       vD[d].qtd   += 1;
-      vD[d].valor += valorFatura;
-      vD[d].taxa  += taxa;
-      // Por anúncio — só webhook tem Ad Id; histórico não contribui aqui
-      const adId=r["Ad Id"];
+      vD[d].valor += parseBRL(r["Valor do produto"]);
+      vD[d].taxa  += parseBRLAbs(r["Taxa da plataforma"]);
+      // Por anúncio — extrair Ad ID do campo "Ad Id" (pode ser string longa)
+      const rawAdId=r["Ad Id"]||"";
+      const adId=extractAdId(rawAdId);
       if(adId){
+        // Global (legado)
         if(!vByAd[adId])vByAd[adId]={qtd:0,valor:0,taxa:0};
         vByAd[adId].qtd   += 1;
-        vByAd[adId].valor += valorFatura;
-        vByAd[adId].taxa  += taxa;
+        vByAd[adId].valor += parseBRL(r["Valor do produto"]);
+        vByAd[adId].taxa  += parseBRLAbs(r["Taxa da plataforma"]);
+        // Por data (para filtrar por período na aba Anúncios)
         if(!vByAdDate[adId]) vByAdDate[adId]={};
         if(!vByAdDate[adId][d]) vByAdDate[adId][d]={qtd:0,valor:0,taxa:0};
         vByAdDate[adId][d].qtd   += 1;
-        vByAdDate[adId][d].valor += valorFatura;
-        vByAdDate[adId][d].taxa  += taxa;
+        vByAdDate[adId][d].valor += parseBRL(r["Valor do produto"]);
+        vByAdDate[adId][d].taxa  += parseBRLAbs(r["Taxa da plataforma"]);
       }
     }
     S.vendas=vD;
     S.vendasByAd=vByAd;
     S.vendasByAdDate=vByAdDate;
 
-    // ── Funil — usa todas as linhas (webhook + histórico manual) ──────────
-    // expandFunilRows lida com OBs inline do webhook; histórico vem 1 produto/linha
-    S.funilRows = deduplicateFunilRows(expandFunilRows(allEduzzRows));
+    // ── Funil — Base Vendas Completo ──────────────────────────────────────
+    // Expande formato horizontal (OBs na mesma linha) e deduplica eventos webhook
+    const rawFunil = parseSheet(fj);
+    S.funilRows = deduplicateFunilRows(expandFunilRows(rawFunil));
     try{ S.funil = buildFunilData(S.funilRows, S.fStartDate, S.fEndDate); }
     catch(fe){ console.error("buildFunilData error:",fe); S.funil={}; }
 
     // "Atualizado em" = data/hora da última venda Paga do Manual Definitivo
-    // Busca em allEduzzRows para cobrir também o histórico
-    let lastManualSaleISO="";
-    let lastManualSaleDisplay="";
-    for(const r of allEduzzRows){
-      const nm=(r["Nome do produto"]||"").toUpperCase();
-      if(!nm.includes("MANUAL DEFINITIVO")) continue;
-      if(r["Status da compra"]!=="3") continue;
-      const raw=(r["Data da compra"]||"").trim(); // "2026-06-04 19:25:24" ou "2026-05-20"
-      const isoFull=raw.replace(" ","T");
-      if(isoFull > lastManualSaleISO){
-        lastManualSaleISO=isoFull;
-        // Formata para exibição: "04/06/2026 19:25"
-        const parts=raw.split(" ");
-        const dp=(parts[0]||"").split("-");
-        const dateDisp=dp.length===3?`${dp[2]}/${dp[1]}/${dp[0]}`:"";
-        const timeDisp=(parts[1]||"").slice(0,5);
-        lastManualSaleDisplay=timeDisp?`${dateDisp} ${timeDisp}`:dateDisp;
-      }
+    // Compara em ISO para evitar bug de ordenação de string dd/mm/yyyy
+    function fmtUpdated(raw){
+      if(!raw) return "—";
+      const parts=raw.trim().split(" ");
+      const datePart=parts[0];
+      const timePart=parts[1]||"";
+      const dp=datePart.split("/");
+      const dateStr=dp.length===3?`${dp[0]}/${dp[1]}/${dp[2]}`:"";
+      return timePart ? `${dateStr} ${timePart.slice(0,5)}` : dateStr;
     }
-    S.updated=lastManualSaleDisplay||"—";
+    function rawToISO(raw){
+      // converte dd/mm/yyyy HH:MM:SS ou yyyy-mm-dd para yyyy-mm-ddTHH:MM para comparação
+      if(!raw) return "";
+      const parts=raw.trim().split(" ");
+      const d=parts[0]; const t=parts[1]||"00:00:00";
+      const dp=d.split("/");
+      if(dp.length===3) return `${dp[2]}-${dp[1].padStart(2,"0")}-${dp[0].padStart(2,"0")}T${t}`;
+      return d+"T"+t; // já em ISO
+    }
+    let lastManualSale="";
+    let lastManualSaleISO="";
+    // Percorre as linhas RAW (antes do expandFunilRows que usa toISO)
+    // para preservar o horário completo
+    for(const r of rawFunil){
+      const nm=(r["Nome do produto principal"]||"").toUpperCase();
+      if(!nm.includes("MANUAL DEFINITIVO")) continue;
+      const st=normalizeStatus((r["Status da compra"]||"").trim());
+      if(st!=="Paga") continue;
+      const raw=(r["Data da compra"]||"").trim();
+      const iso=rawToISO(raw);
+      if(iso > lastManualSaleISO){ lastManualSaleISO=iso; lastManualSale=raw; }
+    }
+    S.updated=fmtUpdated(lastManualSale);
     S.firstLoad=false;
     clearTimeout(_t);
   } catch(e){
@@ -1364,10 +1189,11 @@ const FUNIL_STEPS=[
 function expandFunilRows(rawRows){
   const out=[];
   for(const r of rawRows){
-    if(!r["Nome do produto"] && !r["Data da compra"]) continue;
+    if(!r["Nome do produto principal"] && !r["Data da compra"]) continue;
     // Normaliza status e data
     const st=normalizeStatus(r["Status da compra"]);
-    const dataBruta=stripTime(r["Data da compra"]||r["Data"]||"");
+    if(!st) continue; // ignora status desconhecidos (ex: 15)
+    const dataBruta=stripTime(r["Data da compra"]||"");
     const base={
       "Email":r["Email"]||"",
       "CPF Comprador":r["CPF Comprador"]||"",
@@ -1377,14 +1203,14 @@ function expandFunilRows(rawRows){
       "Data da compra":dataBruta,
     };
     // Produto principal
-    if(r["Nome do produto"]){
+    if(r["Nome do produto principal"]){
       out.push({...base,
-        "Nome do produto":r["Nome do produto"],
-        "Valor do produto":r["Valor do produto"]||"0",
+        "Nome do produto":r["Nome do produto principal"],
+        "Valor do produto":r["Valor do produto principal"]||"0",
         "Taxa da plataforma":r["Taxa da plataforma"]||"0",
       });
     }
-    // OB1 — só no novo formato horizontal
+    // OB1
     if(r["Nome do orderbump 01"]){
       out.push({...base,
         "Nome do produto":r["Nome do orderbump 01"],
@@ -1392,7 +1218,7 @@ function expandFunilRows(rawRows){
         "Taxa da plataforma":"0",
       });
     }
-    // OB2 — só no novo formato horizontal
+    // OB2
     if(r["Nome do orderbump 02"]){
       out.push({...base,
         "Nome do produto":r["Nome do orderbump 02"],
@@ -1616,23 +1442,9 @@ function buildFunilData(rows, start, end){
       let cnt=0;
       for(const [,buyer] of buyers){
         const paid=buyer.products.filter(p=>p.status==="Paga");
-        // Manual comprado dentro do período filtrado
-        const manualNoPeriodo=paid.filter(p=>{
-          if(p.id!=="manual") return false;
-          if(start && p.date<start) return false;
-          if(end   && p.date>end)   return false;
-          return true;
-        }).sort((a,b)=>a.date.localeCompare(b.date));
-        if(!manualNoPeriodo.length) continue;
-        const mp=manualNoPeriodo[0];
-        // planLucro ou curso: dentro do período E após o manual
-        const ascendeu=paid.some(p=>{
-          if(p.id!=="planLucro"&&p.id!=="curso") return false;
-          if(p.date<mp.date) return false;
-          if(start && p.date<start) return false;
-          if(end   && p.date>end)   return false;
-          return true;
-        });
+        const mp=paid.filter(p=>p.id==="manual").sort((a,b)=>a.date.localeCompare(b.date))[0];
+        if(!mp) continue;
+        const ascendeu=paid.some(p=>(p.id==="planLucro"||p.id==="curso")&&p.date>=mp.date);
         if(ascendeu) cnt++;
       }
       return (cnt/manualCount)*100;
