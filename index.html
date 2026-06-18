@@ -407,6 +407,9 @@ async function loadData(){
     for(const r of parseSheet(vj)){
       const st=normalizeStatus((r["Status da compra"]||"").trim());
       if(st!=="Paga") continue;
+      // Só conta transações onde o produto principal é o Manual Definitivo
+      const nomePrincipal=(r["Nome do produto principal"]||"").toUpperCase();
+      if(!nomePrincipal.includes("MANUAL DEFINITIVO")) continue;
       const d=toISO(r["Data da compra"]);if(!d)continue;
       // Por dia
       if(!vD[d])vD[d]={qtd:0,valor:0,taxa:0};
