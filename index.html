@@ -170,7 +170,8 @@ const SHEET_ID_VENDAS = "1JlVCbaJwJYgfhJW4XZHptWlAeQdHUQcFDgpGyga-lBA";
 const API_KEY  = "AIzaSyDxMp-u0RUfy-Xv0jICULZbJGpuAUxqQPI";
 const URL_META   = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID_META}/values/${encodeURIComponent("Base Meta")}?key=${API_KEY}`;
 const URL_VENDAS = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID_VENDAS}/values/${encodeURIComponent("📥 Base Vendas - Completo")}?key=${API_KEY}`;
-const URL_FUNIL  = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID_VENDAS}/values/${encodeURIComponent("📥 Base Vendas - Completo")}?key=${API_KEY}`;
+const URL_HIST   = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID_VENDAS}/values/${encodeURIComponent("📥 Base Vendas - Completo - manual")}?key=${API_KEY}`;
+const URL_FUNIL  = URL_VENDAS;
 
 // Mapeamento do funil — ordem importa
 const FUNIL_PRODUTOS = [
@@ -350,11 +351,34 @@ async function loadData(){
       S.error="Tempo esgotado. Verifique a conexão e tente atualizar.";render();}
   },90000);
   try {
-    const [mr,vr]=await Promise.all([fetch(URL_META),fetch(URL_VENDAS)]);
+    const [mr,vr,hr]=await Promise.all([fetch(URL_META),fetch(URL_VENDAS),fetch(URL_HIST)]);
     if(!mr.ok)throw new Error(`HTTP ${mr.status} ao carregar Meta`);
     if(!vr.ok)throw new Error(`HTTP ${vr.status} ao carregar Vendas`);
-    const [mj,vj]=await Promise.all([mr.json(),vr.json()]);
-    // Funil usa a mesma planilha de vendas
+    if(!hr.ok)throw new Error(`HTTP ${hr.status} ao carregar Histórico`);
+    const [mj,vj,hj]=await Promise.all([mr.json(),vr.json(),hr.json()]);
+
+    // Converte base histórica (formato vertical: 1 linha = 1 produto, status texto)
+    // para o formato interno comum, equivalente ao que expandFunilRows produziria
+    function parseHistRow(r){
+      const st=(r["Status da compra"]||"").trim(); // já é texto
+      const dataBruta=stripTime(r["Data da compra"]||"");
+      return {
+        "Email":r["Email"]||"",
+        "CPF Comprador":r["CPF Comprador"]||"",
+        "Telefone":r["Telefone"]||"",
+        "Nome":r["Nome"]||"",
+        "Status da compra":st,
+        "Data da compra":dataBruta,
+        "Nome do produto":r["Nome do produto"]||"",
+        "Valor do produto":r["Valor do produto"]||"0",
+        "Taxa da plataforma":r["Taxa da plataforma"]||"0",
+        "Ad Id":r["Ad Id"]||"",
+        _src:"hist",
+      };
+    }
+    const histRows=parseSheet(hj).map(parseHistRow).filter(r=>r["Nome do produto"]);
+
+    // Funil usa a mesma planilha de vendas (webhook)
     const fj=vj;
 
     // Meta — por dia (para abas Principal e Tráfego)
@@ -400,47 +424,87 @@ async function loadData(){
     S.metaByAdByDate=mByAdByDate;
 
     // Vendas — por dia (Principal/Tráfego) e por Ad ID (Anúncios)
-    // Nova planilha: "Data da compra", status numérico, só Paga (3) conta para faturamento/qtd
+    // Combina webhook (vj) + histórica (histRows), só Paga, só Manual como produto principal
     const vD={};
     const vByAd={};
     const vByAdDate={};  // {adId: {date: {qtd,valor,taxa}}}
+
+    // Webhook: 1 linha = 1 transação, produto principal em "Nome do produto principal"
+    // Faturamento = "Valor do produto" (total com OBs)
     for(const r of parseSheet(vj)){
       const st=normalizeStatus((r["Status da compra"]||"").trim());
       if(st!=="Paga") continue;
-      // Só conta transações onde o produto principal é o Manual Definitivo
       const nomePrincipal=(r["Nome do produto principal"]||"").toUpperCase();
       if(!nomePrincipal.includes("MANUAL DEFINITIVO")) continue;
       const d=toISO(r["Data da compra"]);if(!d)continue;
-      // Por dia
       if(!vD[d])vD[d]={qtd:0,valor:0,taxa:0};
       vD[d].qtd   += 1;
       vD[d].valor += parseBRL(r["Valor do produto"]);
       vD[d].taxa  += parseBRLAbs(r["Taxa da plataforma"]);
-      // Por anúncio — extrair Ad ID do campo "Ad Id" (pode ser string longa)
-      const rawAdId=r["Ad Id"]||"";
-      const adId=extractAdId(rawAdId);
+      const adId=extractAdId(r["Ad Id"]||"");
       if(adId){
-        // Global (legado)
         if(!vByAd[adId])vByAd[adId]={qtd:0,valor:0,taxa:0};
-        vByAd[adId].qtd   += 1;
-        vByAd[adId].valor += parseBRL(r["Valor do produto"]);
-        vByAd[adId].taxa  += parseBRLAbs(r["Taxa da plataforma"]);
-        // Por data (para filtrar por período na aba Anúncios)
+        vByAd[adId].qtd+=1; vByAd[adId].valor+=parseBRL(r["Valor do produto"]); vByAd[adId].taxa+=parseBRLAbs(r["Taxa da plataforma"]);
         if(!vByAdDate[adId]) vByAdDate[adId]={};
         if(!vByAdDate[adId][d]) vByAdDate[adId][d]={qtd:0,valor:0,taxa:0};
-        vByAdDate[adId][d].qtd   += 1;
-        vByAdDate[adId][d].valor += parseBRL(r["Valor do produto"]);
-        vByAdDate[adId][d].taxa  += parseBRLAbs(r["Taxa da plataforma"]);
+        vByAdDate[adId][d].qtd+=1; vByAdDate[adId][d].valor+=parseBRL(r["Valor do produto"]); vByAdDate[adId][d].taxa+=parseBRLAbs(r["Taxa da plataforma"]);
       }
     }
+
+    // Histórica: 1 linha = 1 produto, só conta linhas onde o produto é o Manual
+    // Faturamento = "Valor do produto" da linha do Manual (não inclui OBs — cada um é linha separada)
+    // Aqui precisamos somar, por comprador+data, o valor do Manual + seus OBs para o faturamento correto
+    // Estratégia: agrupa por (email||cpf||tel) + data_iso → soma valor de todos os produtos do funil
+    // e usa a linha do Manual como representante da transação (qtd=1 por grupo)
+    {
+      // Agrupa linhas por comprador+data
+      const grupos=new Map();
+      for(const r of histRows){
+        const st=(r["Status da compra"]||"").trim();
+        if(st!=="Paga") continue;
+        const prodId=classifyProduct(r["Nome do produto"]||"");
+        if(!prodId) continue; // ignora produtos de outros funis
+        const d=toISO(r["Data da compra"]);if(!d)continue;
+        const em=(r["Email"]||"").toLowerCase().trim();
+        const cpf=(r["CPF Comprador"]||"").replace(/[^\d]/g,"");
+        const tel=(r["Telefone"]||"").replace(/[^\d]/g,"");
+        const identity=em||cpf||tel;if(!identity)continue;
+        const key=identity+"|"+d;
+        if(!grupos.has(key)) grupos.set(key,{d,manual:false,valor:0,taxa:0,adId:null,rows:[]});
+        const g=grupos.get(key);
+        g.rows.push(r);
+        g.valor+=parseBRL(r["Valor do produto"]);
+        g.taxa+=parseBRLAbs(r["Taxa da plataforma"]);
+        if(prodId==="manual"){
+          g.manual=true;
+          if(!g.adId) g.adId=extractAdId(r["Ad Id"]||"");
+        }
+      }
+      // Só conta grupos que têm o Manual (produto de entrada do funil)
+      for(const [,g] of grupos){
+        if(!g.manual) continue;
+        const d=g.d;
+        if(!vD[d])vD[d]={qtd:0,valor:0,taxa:0};
+        vD[d].qtd+=1; vD[d].valor+=g.valor; vD[d].taxa+=g.taxa;
+        if(g.adId){
+          if(!vByAd[g.adId])vByAd[g.adId]={qtd:0,valor:0,taxa:0};
+          vByAd[g.adId].qtd+=1; vByAd[g.adId].valor+=g.valor; vByAd[g.adId].taxa+=g.taxa;
+          if(!vByAdDate[g.adId]) vByAdDate[g.adId]={};
+          if(!vByAdDate[g.adId][d]) vByAdDate[g.adId][d]={qtd:0,valor:0,taxa:0};
+          vByAdDate[g.adId][d].qtd+=1; vByAdDate[g.adId][d].valor+=g.valor; vByAdDate[g.adId][d].taxa+=g.taxa;
+        }
+      }
+    }
+
     S.vendas=vD;
     S.vendasByAd=vByAd;
     S.vendasByAdDate=vByAdDate;
 
-    // ── Funil — Base Vendas Completo ──────────────────────────────────────
-    // Expande formato horizontal (OBs na mesma linha) e deduplica eventos webhook
+    // ── Funil — combina webhook (expandido) + histórica (já no formato interno) ──
+    // Deduplica as duas fontes juntas para eliminar qualquer sobreposição
     const rawFunil = parseSheet(fj);
-    S.funilRows = deduplicateFunilRows(expandFunilRows(rawFunil));
+    const webhookFunilRows = expandFunilRows(rawFunil);
+    S.funilRows = deduplicateFunilRows([...webhookFunilRows, ...histRows]);
     try{ S.funil = buildFunilData(S.funilRows, S.fStartDate, S.fEndDate); }
     catch(fe){ console.error("buildFunilData error:",fe); S.funil={}; }
 
@@ -466,12 +530,21 @@ async function loadData(){
     }
     let lastManualSale="";
     let lastManualSaleISO="";
-    // Percorre as linhas RAW (antes do expandFunilRows que usa toISO)
-    // para preservar o horário completo
+    // Webhook: coluna "Nome do produto principal"
     for(const r of rawFunil){
       const nm=(r["Nome do produto principal"]||"").toUpperCase();
       if(!nm.includes("MANUAL DEFINITIVO")) continue;
       const st=normalizeStatus((r["Status da compra"]||"").trim());
+      if(st!=="Paga") continue;
+      const raw=(r["Data da compra"]||"").trim();
+      const iso=rawToISO(raw);
+      if(iso > lastManualSaleISO){ lastManualSaleISO=iso; lastManualSale=raw; }
+    }
+    // Histórica: coluna "Nome do produto"
+    for(const r of histRows){
+      const nm=(r["Nome do produto"]||"").toUpperCase();
+      if(!nm.includes("MANUAL DEFINITIVO")) continue;
+      const st=(r["Status da compra"]||"").trim();
       if(st!=="Paga") continue;
       const raw=(r["Data da compra"]||"").trim();
       const iso=rawToISO(raw);
