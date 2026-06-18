@@ -431,23 +431,39 @@ async function loadData(){
 
     // Webhook: 1 linha = 1 transação, produto principal em "Nome do produto principal"
     // Faturamento = "Valor do produto" (total com OBs)
-    for(const r of parseSheet(vj)){
-      const st=normalizeStatus((r["Status da compra"]||"").trim());
-      if(st!=="Paga") continue;
-      const nomePrincipal=(r["Nome do produto principal"]||"").toUpperCase();
-      if(!nomePrincipal.includes("MANUAL DEFINITIVO")) continue;
-      const d=toISO(r["Data da compra"]);if(!d)continue;
-      if(!vD[d])vD[d]={qtd:0,valor:0,taxa:0};
-      vD[d].qtd   += 1;
-      vD[d].valor += parseBRL(r["Valor do produto"]);
-      vD[d].taxa  += parseBRLAbs(r["Taxa da plataforma"]);
-      const adId=extractAdId(r["Ad Id"]||"");
-      if(adId){
-        if(!vByAd[adId])vByAd[adId]={qtd:0,valor:0,taxa:0};
-        vByAd[adId].qtd+=1; vByAd[adId].valor+=parseBRL(r["Valor do produto"]); vByAd[adId].taxa+=parseBRLAbs(r["Taxa da plataforma"]);
-        if(!vByAdDate[adId]) vByAdDate[adId]={};
-        if(!vByAdDate[adId][d]) vByAdDate[adId][d]={qtd:0,valor:0,taxa:0};
-        vByAdDate[adId][d].qtd+=1; vByAdDate[adId][d].valor+=parseBRL(r["Valor do produto"]); vByAdDate[adId][d].taxa+=parseBRLAbs(r["Taxa da plataforma"]);
+    // Agrupa por (identidade + data) para garantir que reembolsos posteriores cancelem o Pago
+    {
+      const ST_PRI={"Reembolsado":6,"Aguardando Reembolso":5,"Em Recuperacao":4,"Paga":3,"Expirado":2,"Aberta":1,"":0};
+      const whGrupos=new Map();
+      for(const r of parseSheet(vj)){
+        const nomePrincipal=(r["Nome do produto principal"]||"").toUpperCase();
+        if(!nomePrincipal.includes("MANUAL DEFINITIVO")) continue;
+        const st=normalizeStatus((r["Status da compra"]||"").trim());
+        if(!st) continue;
+        const d=toISO(r["Data da compra"]);if(!d)continue;
+        const em=(r["Email"]||"").toLowerCase().trim();
+        const cpf=(r["CPF Comprador"]||"").replace(/[^\d]/g,"");
+        const tel=(r["Telefone"]||"").replace(/[^\d]/g,"");
+        const identity=em||cpf||tel;if(!identity)continue;
+        const key=identity+"|"+d;
+        if(!whGrupos.has(key)){
+          whGrupos.set(key,{st,d,valor:parseBRL(r["Valor do produto"]),taxa:parseBRLAbs(r["Taxa da plataforma"]),adId:extractAdId(r["Ad Id"]||"")});
+        } else {
+          const g=whGrupos.get(key);
+          if((ST_PRI[st]||0)>(ST_PRI[g.st]||0)) g.st=st;
+        }
+      }
+      for(const [,g] of whGrupos){
+        if(g.st!=="Paga") continue;
+        if(!vD[g.d])vD[g.d]={qtd:0,valor:0,taxa:0};
+        vD[g.d].qtd+=1; vD[g.d].valor+=g.valor; vD[g.d].taxa+=g.taxa;
+        if(g.adId){
+          if(!vByAd[g.adId])vByAd[g.adId]={qtd:0,valor:0,taxa:0};
+          vByAd[g.adId].qtd+=1; vByAd[g.adId].valor+=g.valor; vByAd[g.adId].taxa+=g.taxa;
+          if(!vByAdDate[g.adId]) vByAdDate[g.adId]={};
+          if(!vByAdDate[g.adId][g.d]) vByAdDate[g.adId][g.d]={qtd:0,valor:0,taxa:0};
+          vByAdDate[g.adId][g.d].qtd+=1; vByAdDate[g.adId][g.d].valor+=g.valor; vByAdDate[g.adId][g.d].taxa+=g.taxa;
+        }
       }
     }
 
