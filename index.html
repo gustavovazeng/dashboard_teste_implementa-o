@@ -138,12 +138,12 @@ input[type=date]::-webkit-calendar-picker-indicator{opacity:.5;cursor:pointer}
         </div>
         <div class="mt-dot"></div>
       </a>
-      <a class="master-tab mt-inactive" title="Em breve — configure os dados do funil">
+      <a class="master-tab mt-active" onclick="switchFunil('mapa')">
         <div>
           <div class="master-tab-name">Mapa da Casa</div>
-          <div style="font-size:9px;color:#5a4838;margin-top:1px">em breve</div>
+          <div style="font-size:9px;color:#e8621a;margin-top:1px" id="mt-mapa-sub">ativo</div>
         </div>
-        <span class="mt-soon">🔒</span>
+        <div class="mt-dot"></div>
       </a>
     </div>
 
@@ -165,13 +165,15 @@ input[type=date]::-webkit-calendar-picker-indicator{opacity:.5;cursor:pointer}
 
 <script>
 const IS_FILE = location.protocol === "file:";
-const SHEET_ID_META = "1gaMsxGBZ75oVeDJYQo0vdrW6PGoPC4DuxBmkbJ_Yf9s";
-const SHEET_ID_VENDAS = "1JlVCbaJwJYgfhJW4XZHptWlAeQdHUQcFDgpGyga-lBA";
+const SHEET_ID_META        = "1gaMsxGBZ75oVeDJYQo0vdrW6PGoPC4DuxBmkbJ_Yf9s";
+const SHEET_ID_META_MAPA   = "1C1wWJplGPSwBHkn4E8cpVpeBDjnZOzf_tY0FLEkPiOw";
+const SHEET_ID_VENDAS      = "1JlVCbaJwJYgfhJW4XZHptWlAeQdHUQcFDgpGyga-lBA";
 const API_KEY  = "AIzaSyDxMp-u0RUfy-Xv0jICULZbJGpuAUxqQPI";
-const URL_META   = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID_META}/values/${encodeURIComponent("Base Meta")}?key=${API_KEY}`;
-const URL_VENDAS = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID_VENDAS}/values/${encodeURIComponent("📥 Base Vendas - Completo")}?key=${API_KEY}`;
-const URL_HIST   = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID_VENDAS}/values/${encodeURIComponent("📥 Base Vendas - Completo - manual")}?key=${API_KEY}`;
-const URL_FUNIL  = URL_VENDAS;
+const URL_META      = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID_META}/values/${encodeURIComponent("Base Meta")}?key=${API_KEY}`;
+const URL_META_MAPA = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID_META_MAPA}/values/${encodeURIComponent("Base Meta")}?key=${API_KEY}`;
+const URL_VENDAS    = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID_VENDAS}/values/${encodeURIComponent("📥 Base Vendas - Completo")}?key=${API_KEY}`;
+const URL_HIST      = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID_VENDAS}/values/${encodeURIComponent("📥 Base Vendas - Completo - manual")}?key=${API_KEY}`;
+const URL_FUNIL     = URL_VENDAS;
 
 // Mapeamento do funil — ordem importa
 const FUNIL_PRODUTOS = [
@@ -210,11 +212,25 @@ const CHART_CPV   = "#a06000";
 
 // State
 const S = {
+  currentFunil:"manual", // "manual" | "mapa"
+  // ── Dados Manual ──
   meta:{}, vendas:{},
-  metaByAd:{},   // {adId: {name, date->row, spend, clicks, impressions, igUrl}}
-  metaByAdByDate:{}, // {advCode: {date: {spend,clicks,impressions}}}
-  vendasByAd:{}, // {adId: {qtd, valor, taxa}}
-  loading:false, error:null, updated:null, firstLoad:true,
+  metaByAd:{},
+  metaByAdByDate:{},
+  vendasByAd:{},
+  vendasByAdDate:{},
+  funilRows:[],
+  funil:{},
+  updated:null,
+  // ── Dados Mapa ──
+  mapa:{
+    meta:{}, vendas:{},
+    metaByAd:{}, metaByAdByDate:{},
+    vendasByAd:{}, vendasByAdDate:{},
+    funilRows:[], funil:{},
+    updated:null,
+  },
+  loading:false, error:null, firstLoad:true,
   // Principal
   startDate:nDaysAgoISO(29), endDate:todayISO(), activeQuick:"30d",
   // Tráfego
@@ -223,17 +239,15 @@ const S = {
   aStartDate:nDaysAgoISO(29), aEndDate:todayISO(), aActiveQuick:"30d",
   aSort:{col:"spend",dir:"desc"},
   // Funil
-  funil:{},        // dados processados do funil
-  funilRows:[],    // linhas raw da aba completo
-  fStartDate:"",   // funil: sem filtro de data por default (all time)
+  fStartDate:"",
   fEndDate:"",
   fActiveQuick:"all",
   aTab:"tempo",
   anaStartDate:"", anaEndDate:"", anaActiveQuick:"all",
-  anaTempoProd1:"manual", anaTempoProd2:"curso",
+  anaTempoProd1:"mapa", anaTempoProd2:"curso",
   anaJornadaFiltro:"all", anaJornadaSort:"freq",
   anaStatusFiltro:"all", anaStatusGroup:"produto",
-  // Overlay toggles por gráfico: {cpc:{inv:false,cpv:false}, ...}
+  // Overlay toggles por gráfico
   overlays:{cpc:{inv:false,cpv:false},ctr:{inv:false,cpv:false},cpm:{inv:false,cpv:false},
     txPagChk:{inv:false,cpv:false},txChkVnd:{inv:false,cpv:false},connect:{inv:false,cpv:false}},
   currentPage:"principal",
@@ -351,11 +365,12 @@ async function loadData(){
       S.error="Tempo esgotado. Verifique a conexão e tente atualizar.";render();}
   },90000);
   try {
-    const [mr,vr,hr]=await Promise.all([fetch(URL_META),fetch(URL_VENDAS),fetch(URL_HIST)]);
+    const [mr,vr,hr,mmr]=await Promise.all([fetch(URL_META),fetch(URL_VENDAS),fetch(URL_HIST),fetch(URL_META_MAPA)]);
     if(!mr.ok)throw new Error(`HTTP ${mr.status} ao carregar Meta`);
     if(!vr.ok)throw new Error(`HTTP ${vr.status} ao carregar Vendas`);
     if(!hr.ok)throw new Error(`HTTP ${hr.status} ao carregar Histórico`);
-    const [mj,vj,hj]=await Promise.all([mr.json(),vr.json(),hr.json()]);
+    if(!mmr.ok)throw new Error(`HTTP ${mmr.status} ao carregar Meta Mapa`);
+    const [mj,vj,hj,mmj]=await Promise.all([mr.json(),vr.json(),hr.json(),mmr.json()]);
 
     // Converte base histórica (formato vertical: 1 linha = 1 produto, status texto)
     // para o formato interno comum, equivalente ao que expandFunilRows produziria
@@ -521,16 +536,161 @@ async function loadData(){
     S.vendasByAd=vByAd;
     S.vendasByAdDate=vByAdDate;
 
-    // ── Funil — combina webhook (expandido) + histórica (já no formato interno) ──
-    // Deduplica as duas fontes juntas para eliminar qualquer sobreposição
+    // ── Meta Mapa ────────────────────────────────────────────────────────────
+    {
+      const mD={}, mByAd={}, mByAdByDate={};
+      for(const r of parseSheet(mmj)){
+        const d=toISO(r["Date"]);if(!d)continue;
+        if(!mD[d])mD[d]={spend:0,clicks:0,impressions:0,landingViews:0,checkouts:0,purchases:0,viewContent:0};
+        mD[d].spend        += parseBRL(r["Spend (Cost, Amount Spent)"]);
+        mD[d].clicks       += parseInt(r["Action Link Clicks"]||0)||0;
+        mD[d].impressions  += parseInt(r["Impressions"]||0)||0;
+        mD[d].landingViews += parseInt(r["Action Landing Page View"]||0)||0;
+        mD[d].checkouts    += parseInt(r["Action FB Pixel Initiate Checkout (Offsite Conversion)"]||0)||0;
+        mD[d].viewContent  += parseInt(r["Action Omni View Content"]||0)||0;
+        const adId=r["Ad ID"]||r["Ad Id"]||"";
+        const adName=r["Ad Name"]||"";
+        const igUrl=r["Instagram Permalink URL"]||"";
+        const advCode=extractAdvCode(adName);
+        if(advCode){
+          if(!mByAd[advCode])mByAd[advCode]={advCode,adIds:new Set(),spend:0,clicks:0,impressions:0,igUrl:"",dates:new Set()};
+          if(adId) mByAd[advCode].adIds.add(adId);
+          mByAd[advCode].spend       += parseBRL(r["Spend (Cost, Amount Spent)"]);
+          mByAd[advCode].clicks      += parseInt(r["Action Link Clicks"]||0)||0;
+          mByAd[advCode].impressions += parseInt(r["Impressions"]||0)||0;
+          mByAd[advCode].dates.add(d);
+          if(igUrl && !mByAd[advCode].igUrl) mByAd[advCode].igUrl=igUrl;
+          if(!mByAdByDate[advCode]) mByAdByDate[advCode]={};
+          if(!mByAdByDate[advCode][d]) mByAdByDate[advCode][d]={spend:0,clicks:0,impressions:0,adIds:new Set(),igUrl:""};
+          mByAdByDate[advCode][d].spend       += parseBRL(r["Spend (Cost, Amount Spent)"]);
+          mByAdByDate[advCode][d].clicks      += parseInt(r["Action Link Clicks"]||0)||0;
+          mByAdByDate[advCode][d].impressions += parseInt(r["Impressions"]||0)||0;
+          if(adId) mByAdByDate[advCode][d].adIds.add(adId);
+          if(igUrl && !mByAdByDate[advCode][d].igUrl) mByAdByDate[advCode][d].igUrl=igUrl;
+        }
+      }
+      S.mapa.meta=mD; S.mapa.metaByAd=mByAd; S.mapa.metaByAdByDate=mByAdByDate;
+    }
+
+    // ── Vendas Mapa ──────────────────────────────────────────────────────────
+    {
+      const vD={}, vByAd={}, vByAdDate={};
+
+      // Webhook: detecta transação do Mapa olhando produto principal E OBs
+      // (bug Eduzz: às vezes Checklist vem como principal e Mapa como OB)
+      {
+        const ST_PRI={"Reembolsado":6,"Aguardando Reembolso":5,"Em Recuperacao":4,"Paga":3,"Expirado":2,"Aberta":1,"":0};
+        const whGrupos=new Map();
+        for(const r of parseSheet(vj)){
+          const nomePrincipal=(r["Nome do produto principal"]||"").toUpperCase();
+          const nomeOB1=(r["Nome do orderbump 01"]||"").toUpperCase();
+          const nomeOB2=(r["Nome do orderbump 02"]||"").toUpperCase();
+          // Pertence ao funil Mapa se Mapa aparece em qualquer campo
+          const ehMapa=nomePrincipal.includes("MAPA DA CASA")||nomeOB1.includes("MAPA DA CASA")||nomeOB2.includes("MAPA DA CASA");
+          if(!ehMapa) continue;
+          const st=normalizeStatus((r["Status da compra"]||"").trim());
+          if(!st) continue;
+          const d=toISO(r["Data da compra"]);if(!d)continue;
+          const em=(r["Email"]||"").toLowerCase().trim();
+          const cpf=(r["CPF Comprador"]||"").replace(/[^\d]/g,"");
+          const tel=(r["Telefone"]||"").replace(/[^\d]/g,"");
+          const identity=em||cpf||tel;if(!identity)continue;
+          const key=identity+"|"+d;
+          // Valor do produto = soma do Mapa + OBs diretos (guiaCaixa + checklistMapa)
+          // independente de em qual campo estão
+          const campos=[
+            {nome:nomePrincipal, val:r["Valor do produto principal"]||r["Valor do produto"]||"0", taxa:r["Taxa da plataforma"]||"0"},
+            {nome:nomeOB1,       val:r["Valor order bump 01"]||"0", taxa:"0"},
+            {nome:nomeOB2,       val:r["Valor order bump 02"]||"0", taxa:"0"},
+          ];
+          let valor=0, taxa=0;
+          for(const c of campos){
+            if(!c.nome) continue;
+            const pid=classifyProduct(c.nome,"mapa");
+            if(pid==="mapa"||pid==="guiaCaixa"||pid==="checklistMapa"){
+              valor+=parseBRL(c.val);
+              taxa+=parseBRLAbs(c.taxa);
+            }
+          }
+          if(!whGrupos.has(key)){
+            whGrupos.set(key,{st,d,valor,taxa,adId:extractAdId(r["Ad Id"]||"")});
+          } else {
+            const g=whGrupos.get(key);
+            if((ST_PRI[st]||0)>(ST_PRI[g.st]||0)) g.st=st;
+          }
+        }
+        for(const [,g] of whGrupos){
+          if(g.st!=="Paga") continue;
+          if(!vD[g.d])vD[g.d]={qtd:0,valor:0,taxa:0};
+          vD[g.d].qtd+=1; vD[g.d].valor+=g.valor; vD[g.d].taxa+=g.taxa;
+          if(g.adId){
+            if(!vByAd[g.adId])vByAd[g.adId]={qtd:0,valor:0,taxa:0};
+            vByAd[g.adId].qtd+=1; vByAd[g.adId].valor+=g.valor; vByAd[g.adId].taxa+=g.taxa;
+            if(!vByAdDate[g.adId]) vByAdDate[g.adId]={};
+            if(!vByAdDate[g.adId][g.d]) vByAdDate[g.adId][g.d]={qtd:0,valor:0,taxa:0};
+            vByAdDate[g.adId][g.d].qtd+=1; vByAdDate[g.adId][g.d].valor+=g.valor; vByAdDate[g.adId][g.d].taxa+=g.taxa;
+          }
+        }
+      }
+
+      // Histórica Mapa: mesma lógica da histórica do Manual
+      {
+        const grupos=new Map();
+        for(const r of histRows){
+          const st=(r["Status da compra"]||"").trim();
+          if(st!=="Paga") continue;
+          const prodId=classifyProduct(r["Nome do produto"]||"","mapa");
+          if(!prodId) continue;
+          const d=toISO(r["Data da compra"]);if(!d)continue;
+          const em=(r["Email"]||"").toLowerCase().trim();
+          const cpf=(r["CPF Comprador"]||"").replace(/[^\d]/g,"");
+          const tel=(r["Telefone"]||"").replace(/[^\d]/g,"");
+          const identity=em||cpf||tel;if(!identity)continue;
+          const key=identity+"|"+d;
+          if(!grupos.has(key)) grupos.set(key,{d,mapa:false,valor:0,taxa:0,adId:null,rows:[]});
+          const g=grupos.get(key);
+          g.rows.push(r);
+          const OB_IDS_MAPA=new Set(["mapa","guiaCaixa","checklistMapa"]);
+          if(OB_IDS_MAPA.has(prodId)){
+            g.valor+=parseBRL(r["Valor do produto"]);
+            g.taxa+=parseBRLAbs(r["Taxa da plataforma"]);
+          }
+          if(prodId==="mapa"){
+            g.mapa=true;
+            if(!g.adId) g.adId=extractAdId(r["Ad Id"]||"");
+          }
+        }
+        for(const [,g] of grupos){
+          if(!g.mapa) continue;
+          const d=g.d;
+          if(!vD[d])vD[d]={qtd:0,valor:0,taxa:0};
+          vD[d].qtd+=1; vD[d].valor+=g.valor; vD[d].taxa+=g.taxa;
+          if(g.adId){
+            if(!vByAd[g.adId])vByAd[g.adId]={qtd:0,valor:0,taxa:0};
+            vByAd[g.adId].qtd+=1; vByAd[g.adId].valor+=g.valor; vByAd[g.adId].taxa+=g.taxa;
+            if(!vByAdDate[g.adId]) vByAdDate[g.adId]={};
+            if(!vByAdDate[g.adId][d]) vByAdDate[g.adId][d]={qtd:0,valor:0,taxa:0};
+            vByAdDate[g.adId][d].qtd+=1; vByAdDate[g.adId][d].valor+=g.valor; vByAdDate[g.adId][d].taxa+=g.taxa;
+          }
+        }
+      }
+
+      S.mapa.vendas=vD; S.mapa.vendasByAd=vByAd; S.mapa.vendasByAdDate=vByAdDate;
+    }
+
+    // ── Funil Manual — combina webhook (expandido) + histórica ───────────────
     const rawFunil = parseSheet(fj);
-    const webhookFunilRows = expandFunilRows(rawFunil);
-    S.funilRows = deduplicateFunilRows([...webhookFunilRows, ...histRows]);
+    const webhookFunilRows = expandFunilRows(rawFunil,"manual");
+    S.funilRows = deduplicateFunilRows([...webhookFunilRows, ...histRows.filter(r=>classifyProduct(r["Nome do produto"],"manual")!==null)]);
     try{ S.funil = buildFunilData(S.funilRows, S.fStartDate, S.fEndDate); }
     catch(fe){ console.error("buildFunilData error:",fe); S.funil={}; }
 
-    // "Atualizado em" = data/hora da última venda Paga do Manual Definitivo
-    // Compara em ISO para evitar bug de ordenação de string dd/mm/yyyy
+    // ── Funil Mapa — mesmas linhas do webhook + histórica, filtrado por produto Mapa ──
+    S.mapa.funilRows = deduplicateFunilRows([...expandFunilRows(rawFunil,"mapa"), ...histRows.filter(r=>classifyProduct(r["Nome do produto"],"mapa")!==null)]);
+    try{ S.mapa.funil = buildFunilData(S.mapa.funilRows, S.fStartDate, S.fEndDate, "mapa"); }
+    catch(fe){ console.error("buildFunilData mapa error:",fe); S.mapa.funil={}; }
+
+    // "Atualizado em" — última venda Paga do produto principal de cada funil
     function fmtUpdated(raw){
       if(!raw) return "—";
       const parts=raw.trim().split(" ");
@@ -541,17 +701,15 @@ async function loadData(){
       return timePart ? `${dateStr} ${timePart.slice(0,5)}` : dateStr;
     }
     function rawToISO(raw){
-      // converte dd/mm/yyyy HH:MM:SS ou yyyy-mm-dd para yyyy-mm-ddTHH:MM para comparação
       if(!raw) return "";
       const parts=raw.trim().split(" ");
       const d=parts[0]; const t=parts[1]||"00:00:00";
       const dp=d.split("/");
       if(dp.length===3) return `${dp[2]}-${dp[1].padStart(2,"0")}-${dp[0].padStart(2,"0")}T${t}`;
-      return d+"T"+t; // já em ISO
+      return d+"T"+t;
     }
-    let lastManualSale="";
-    let lastManualSaleISO="";
-    // Webhook: coluna "Nome do produto principal"
+    // Manual: última venda
+    let lastManualSale="", lastManualSaleISO="";
     for(const r of rawFunil){
       const nm=(r["Nome do produto principal"]||"").toUpperCase();
       if(!nm.includes("MANUAL DEFINITIVO")) continue;
@@ -561,7 +719,6 @@ async function loadData(){
       const iso=rawToISO(raw);
       if(iso > lastManualSaleISO){ lastManualSaleISO=iso; lastManualSale=raw; }
     }
-    // Histórica: coluna "Nome do produto"
     for(const r of histRows){
       const nm=(r["Nome do produto"]||"").toUpperCase();
       if(!nm.includes("MANUAL DEFINITIVO")) continue;
@@ -572,6 +729,30 @@ async function loadData(){
       if(iso > lastManualSaleISO){ lastManualSaleISO=iso; lastManualSale=raw; }
     }
     S.updated=fmtUpdated(lastManualSale);
+    // Mapa: última venda
+    let lastMapaSale="", lastMapaSaleISO="";
+    for(const r of rawFunil){
+      const nm=(r["Nome do produto principal"]||"").toUpperCase();
+      const nOB1=(r["Nome do orderbump 01"]||"").toUpperCase();
+      const nOB2=(r["Nome do orderbump 02"]||"").toUpperCase();
+      if(!nm.includes("MAPA DA CASA")&&!nOB1.includes("MAPA DA CASA")&&!nOB2.includes("MAPA DA CASA")) continue;
+      const st=normalizeStatus((r["Status da compra"]||"").trim());
+      if(st!=="Paga") continue;
+      const raw=(r["Data da compra"]||"").trim();
+      const iso=rawToISO(raw);
+      if(iso > lastMapaSaleISO){ lastMapaSaleISO=iso; lastMapaSale=raw; }
+    }
+    for(const r of histRows){
+      const nm=(r["Nome do produto"]||"").toUpperCase();
+      if(!nm.includes("MAPA DA CASA")) continue;
+      const st=(r["Status da compra"]||"").trim();
+      if(st!=="Paga") continue;
+      const raw=(r["Data da compra"]||"").trim();
+      const iso=rawToISO(raw);
+      if(iso > lastMapaSaleISO){ lastMapaSaleISO=iso; lastMapaSale=raw; }
+    }
+    S.mapa.updated=fmtUpdated(lastMapaSale);
+
     S.firstLoad=false;
     clearTimeout(_t);
   } catch(e){
@@ -586,10 +767,11 @@ async function loadData(){
 
 // ── Derived — Principal ────────────────────────────────────────────────────
 function getDaily(start,end){
-  const all=new Set([...Object.keys(S.meta),...Object.keys(S.vendas)]);
-  return Array.from(all).sort().filter(d=>d>=start&&d<=end).map(date=>{
-    const m=S.meta[date]||{spend:0,clicks:0,impressions:0,landingViews:0,checkouts:0};
-    const v=S.vendas[date]||{qtd:0,valor:0,taxa:0};
+  const d=D();
+  const all=new Set([...Object.keys(d.meta),...Object.keys(d.vendas)]);
+  return Array.from(all).sort().filter(dt=>dt>=start&&dt<=end).map(date=>{
+    const m=d.meta[date]||{spend:0,clicks:0,impressions:0,landingViews:0,checkouts:0};
+    const v=d.vendas[date]||{qtd:0,valor:0,taxa:0};
     const lucro=v.valor-v.taxa-(m.spend*TAXA_IMPOSTO);
     return{date,label:fDate(date),spend:m.spend,faturamento:v.valor,vendas:v.qtd,
       roas:m.spend>0?v.valor/m.spend:0,cpv:v.qtd>0?m.spend/v.qtd:0,
@@ -597,8 +779,9 @@ function getDaily(start,end){
   });
 }
 function getTotals(daily){
-  const t=daily.reduce((a,d)=>({spend:a.spend+d.spend,fat:a.fat+d.faturamento,vendas:a.vendas+d.vendas,
-    taxa:a.taxa+(S.vendas[d.date]?.taxa||0)}),{spend:0,fat:0,vendas:0,taxa:0});
+  const d=D();
+  const t=daily.reduce((a,dt)=>({spend:a.spend+dt.spend,fat:a.fat+dt.faturamento,vendas:a.vendas+dt.vendas,
+    taxa:a.taxa+(d.vendas[dt.date]?.taxa||0)}),{spend:0,fat:0,vendas:0,taxa:0});
   return{...t,faturamento:t.fat,
     roas:t.spend>0?t.fat/t.spend:0,cpv:t.vendas>0?t.spend/t.vendas:0,
     ticket:t.vendas>0?t.fat/t.vendas:0,lucro:t.fat-t.taxa-(t.spend*TAXA_IMPOSTO)};
@@ -606,9 +789,10 @@ function getTotals(daily){
 
 // ── Derived — Tráfego ──────────────────────────────────────────────────────
 function getDailyT(start,end){
-  return Object.keys(S.meta).sort().filter(d=>d>=start&&d<=end).map(date=>{
-    const m=S.meta[date];
-    const v=S.vendas[date]||{qtd:0};
+  const d=D();
+  return Object.keys(d.meta).sort().filter(dt=>dt>=start&&dt<=end).map(date=>{
+    const m=d.meta[date];
+    const v=d.vendas[date]||{qtd:0};
     const cpc   = m.clicks>0     ? m.spend/m.clicks          : 0;
     const ctr   = m.impressions>0 ? (m.clicks/m.impressions)*100 : 0;
     const cpm   = m.impressions>0 ? (m.spend/m.impressions)*1000 : 0;
@@ -638,8 +822,9 @@ function getTotalsT(daily){
 
 // Totais de um dia específico
 function getDayMetrics(iso){
-  const m=S.meta[iso]||{spend:0,clicks:0,impressions:0,landingViews:0,checkouts:0};
-  const v=S.vendas[iso]||{qtd:0};
+  const d=D();
+  const m=d.meta[iso]||{spend:0,clicks:0,impressions:0,landingViews:0,checkouts:0};
+  const v=d.vendas[iso]||{qtd:0};
   return{
     spend:m.spend,
     cpc:   m.clicks>0       ? m.spend/m.clicks              : 0,
@@ -655,22 +840,26 @@ function getDayMetrics(iso){
 
 // ── Navigation ─────────────────────────────────────────────────────────────
 function switchFunil(id){
-  // Por enquanto só Manual está disponível — Mapa virá quando os dados forem configurados
-  if(id==='manual'){
-    document.querySelectorAll('.master-tab').forEach(t=>{
-      t.classList.remove('mt-active');
-      t.classList.add('mt-inactive');
-      t.style.pointerEvents='none';
-      t.style.opacity='.5';
-    });
-    const manualTab=document.querySelector('.master-tab');
-    manualTab.classList.remove('mt-inactive');
-    manualTab.classList.add('mt-active');
-    manualTab.style.pointerEvents='';
-    manualTab.style.opacity='';
-    document.getElementById('subnav-lbl').textContent='Manual Definitivo';
-    navTo(S.currentPage);
+  S.currentFunil=id;
+  document.querySelectorAll('.master-tab').forEach(t=>{
+    t.classList.remove('mt-active');
+    t.classList.add('mt-inactive');
+    t.style.pointerEvents='none';
+    t.style.opacity='.5';
+  });
+  const idx=id==='mapa'?1:0;
+  const tab=document.querySelectorAll('.master-tab')[idx];
+  if(tab){
+    tab.classList.remove('mt-inactive');
+    tab.classList.add('mt-active');
+    tab.style.pointerEvents='';
+    tab.style.opacity='';
   }
+  document.getElementById('subnav-lbl').textContent=id==='mapa'?'Mapa da Casa':'Manual Definitivo';
+  // Reseta produto padrão da análise tempo ao trocar funil
+  S.anaTempoProd1=id==='mapa'?'mapa':'manual';
+  S.anaTempoProd2='curso';
+  navTo(S.currentPage);
 }
 
 function navTo(page){
@@ -916,8 +1105,8 @@ function renderPrincipal(){
   el.innerHTML=`
     <div class="hdr">
       <div>
-        <div class="hdr-title">Manual Definitivo para Construção e Venda de Casas Financiadas</div>
-        <div class="hdr-sub">atualizado em: ${S.updated||"—"}${daily.length>0?` · ${daily.length} dias`:""}</div>
+        <div class="hdr-title">${S.currentFunil==="mapa"?"Mapa da Casa Própria com Zero Entrada":"Manual Definitivo para Construção e Venda de Casas Financiadas"}</div>
+        <div class="hdr-sub">atualizado em: ${D().updated||"—"}${daily.length>0?` · ${daily.length} dias`:""}</div>
       </div>
       <button class="btn-refresh" onclick="loadData()" ${S.loading?"disabled":""}>${S.loading?"Carregando...":"↻ Atualizar"}</button>
     </div>
@@ -1068,7 +1257,7 @@ function renderTrafego(){
     <div class="hdr">
       <div>
         <div class="hdr-title">Métricas de Tráfego</div>
-        <div class="hdr-sub">atualizado em: ${S.updated||"—"}</div>
+        <div class="hdr-sub">atualizado em: ${D().updated||"—"}</div>
       </div>
       <button class="btn-refresh" onclick="loadData()" ${S.loading?"disabled":""}>${S.loading?"Carregando...":"↻ Atualizar"}</button>
     </div>
@@ -1112,10 +1301,10 @@ function renderAnuncios(){
   // Para cada advCode, soma invest da base Meta e vendas da base Vendas
   // cruzando pelo Ad ID
   function buildAdRows(start,end){
+    const dd=D();
     const rows=[];
-    for(const [advCode,meta] of Object.entries(S.metaByAd)){
-      // Usa dados pré-filtrados por período (metaByAdByDate)
-      const byDate=S.metaByAdByDate[advCode]||{};
+    for(const [advCode,meta] of Object.entries(dd.metaByAd)){
+      const byDate=dd.metaByAdByDate[advCode]||{};
       let spend=0,clicks=0,impressions=0;
       let igUrl="";
       const adIdsInPeriod=new Set();
@@ -1127,11 +1316,10 @@ function renderAnuncios(){
         }
       }
       if(spend===0) continue;
-      // Vendas: soma dos ad IDs ativos no período, filtradas pela data da venda
       let qtd=0,valor=0,taxa=0;
       const useIds=adIdsInPeriod.size>0?adIdsInPeriod:meta.adIds;
       for(const adId of useIds){
-        const byDate=S.vendasByAdDate[adId]||{};
+        const byDate=dd.vendasByAdDate[adId]||{};
         for(const [vd,vvals] of Object.entries(byDate)){
           if(vd>=start && vd<=end){
             qtd+=vvals.qtd; valor+=vvals.valor; taxa+=vvals.taxa;
@@ -1154,11 +1342,12 @@ function renderAnuncios(){
 
   // Totais do período (usa dados diários já calculados)
   const dailyA=[];
-  const allDates=new Set([...Object.keys(S.meta),...Object.keys(S.vendas)]);
+  const _da=D();
+  const allDates=new Set([...Object.keys(_da.meta),...Object.keys(_da.vendas)]);
   for(const d of Array.from(allDates).sort()){
     if(d<S.aStartDate||d>S.aEndDate) continue;
-    const m=S.meta[d]||{spend:0,clicks:0,impressions:0};
-    const v=S.vendas[d]||{qtd:0,valor:0};
+    const m=_da.meta[d]||{spend:0,clicks:0,impressions:0};
+    const v=_da.vendas[d]||{qtd:0,valor:0};
     dailyA.push({spend:m.spend,clicks:m.clicks,impressions:m.impressions,qtd:v.qtd,valor:v.valor});
   }
   const tot=dailyA.reduce((a,d)=>({
@@ -1191,7 +1380,7 @@ function renderAnuncios(){
     <div class="hdr">
       <div>
         <div class="hdr-title">Anúncios</div>
-        <div class="hdr-sub">atualizado em: ${S.updated||"—"} · ${sorted.length} anúncios</div>
+        <div class="hdr-sub">atualizado em: ${D().updated||"—"} · ${sorted.length} anúncios</div>
       </div>
       <button class="btn-refresh" onclick="loadData()" ${S.loading?"disabled":""}>${S.loading?"Carregando...":"↻ Atualizar"}</button>
     </div>
@@ -1252,11 +1441,34 @@ function renderAnuncios(){
 }
 
 
+// ── Helper: dados do funil ativo ──────────────────────────────────────────
+// Retorna o namespace de dados correto (S ou S.mapa) dependendo do funil ativo
+function D(){ return S.currentFunil==="mapa" ? S.mapa : S; }
+
 // ── Funil helpers ──────────────────────────────────────────────────────────
-function classifyProduct(name){
+function classifyProduct(name, funil){
   if(!name) return null;
   const n=name.toUpperCase();
-  // Ignora produtos de outros funis
+  const f=funil||S.currentFunil;
+
+  if(f==="mapa"){
+    // Produtos ignorados para o funil Mapa
+    const IGNORAR_MAPA=["MANUAL DEFINITIVO","RAIO-X","RAIOX","REDUZIR","IMPOSTO",
+      "APROVAÇÃO DO PROJETO","APROVACAO DO PROJETO","10 ERROS","GRÁTIS","GRATIS",
+      "CUSTO POR M2","REPROVADO","PILARES","DESCUBRA O CUSTO","QUAL O LUCRO",
+      "OS 8 PILARES","MÉTODO ALAVANCA","METODO ALAVANCA","EBOOK - DESCUBRA"];
+    if(IGNORAR_MAPA.some(x=>n.includes(x))) return null;
+    if(n.includes("MAPA DA CASA")) return "mapa";
+    // OB1: Guia Definitivo com Passo a Passo (Financiamento Caixa)
+    if(n.includes("GUIA DEFINITIVO") || (n.includes("CAIXA") && n.includes("PASSO"))) return "guiaCaixa";
+    // OB2: Checklist documentos (mas NÃO é o produto principal — é OB)
+    if(n.includes("CHECKLIST")) return "checklistMapa";
+    if(n.includes("LUCRO")) return "planLucro";
+    if(n.includes("CURSO COMPLETO") || n.includes("PASSO A PASSO")) return "curso";
+    return null;
+  }
+
+  // funil manual (comportamento original)
   const IGNORAR=["MAPA DA CASA","RAIO-X","RAIOX","GUIA DEFINITIVO","REDUZIR","IMPOSTO",
     "APROVAÇÃO DO PROJETO","APROVACAO DO PROJETO","10 ERROS","GRÁTIS","GRATIS",
     "CUSTO POR M2","REPROVADO","PILARES","ZERO ENTRADA","CASA PRÓPRIA","CASA PROPRIA",
@@ -1271,25 +1483,54 @@ function classifyProduct(name){
   return null;
 }
 
-const FUNIL_STEPS=[
-  {id:"manual",    label:"Manual Definitivo",      step:"Entrada"},
-  {id:"checklist", label:"Checklist",              step:"Order Bump 1"},
-  {id:"planFin",   label:"Planilha Financiamento", step:"Order Bump 2"},
-  {id:"planLucro", label:"Planilha Lucro",         step:"Upsell"},
-  {id:"curso",     label:"Curso",                  step:"Ascensão"},
-];
+function getFunilSteps(funil){
+  const f=funil||S.currentFunil;
+  if(f==="mapa") return [
+    {id:"mapa",         label:"Mapa da Casa",          step:"Entrada"},
+    {id:"guiaCaixa",    label:"Guia Definitivo Caixa", step:"Order Bump 1"},
+    {id:"checklistMapa",label:"Checklist Documentos",  step:"Order Bump 2"},
+    {id:"planLucro",    label:"Planilha Lucro",         step:"Upsell"},
+    {id:"curso",        label:"Curso",                  step:"Ascensão"},
+  ];
+  return [
+    {id:"manual",    label:"Manual Definitivo",      step:"Entrada"},
+    {id:"checklist", label:"Checklist",              step:"Order Bump 1"},
+    {id:"planFin",   label:"Planilha Financiamento", step:"Order Bump 2"},
+    {id:"planLucro", label:"Planilha Lucro",         step:"Upsell"},
+    {id:"curso",     label:"Curso",                  step:"Ascensão"},
+  ];
+}
+
 
 // Expande linhas da Base Vendas - Completo
 // Formato antigo: 1 linha = 1 produto
 // Formato novo: 1 linha pode ter produto principal + OB1 + OB2 na mesma linha
 // Upsell e Curso continuam em linhas separadas em ambos os formatos
-function expandFunilRows(rawRows){
+function expandFunilRows(rawRows, funil){
+  // funil opcional: se informado, só expande linhas que pertencem a esse funil
+  // (evita que linhas do Manual entrem no funil do Mapa e vice-versa)
+  const f=funil||null;
   const out=[];
   for(const r of rawRows){
     if(!r["Nome do produto principal"] && !r["Data da compra"]) continue;
-    // Normaliza status e data
     const st=normalizeStatus(r["Status da compra"]);
-    if(!st) continue; // ignora status desconhecidos (ex: 15)
+    if(!st) continue;
+
+    // Se funil informado, verifica se a transação pertence a ele
+    if(f){
+      const nomePrincipal=(r["Nome do produto principal"]||"").toUpperCase();
+      const nOB1=(r["Nome do orderbump 01"]||"").toUpperCase();
+      const nOB2=(r["Nome do orderbump 02"]||"").toUpperCase();
+      if(f==="mapa"){
+        // Pertence ao Mapa se Mapa aparece em qualquer campo
+        const ehMapa=nomePrincipal.includes("MAPA DA CASA")||nOB1.includes("MAPA DA CASA")||nOB2.includes("MAPA DA CASA");
+        if(!ehMapa) continue;
+      } else {
+        // Manual: produto principal deve ser o Manual
+        if(!nomePrincipal.includes("MANUAL DEFINITIVO")) continue;
+      }
+    }
+
     const dataBruta=stripTime(r["Data da compra"]||"");
     const base={
       "Email":r["Email"]||"",
@@ -1299,15 +1540,13 @@ function expandFunilRows(rawRows){
       "Status da compra":st,
       "Data da compra":dataBruta,
     };
-    // Produto principal
     if(r["Nome do produto principal"]){
       out.push({...base,
         "Nome do produto":r["Nome do produto principal"],
-        "Valor do produto":r["Valor do produto principal"]||"0",
+        "Valor do produto":r["Valor do produto principal"]||r["Valor do produto"]||"0",
         "Taxa da plataforma":r["Taxa da plataforma"]||"0",
       });
     }
-    // OB1
     if(r["Nome do orderbump 01"]){
       out.push({...base,
         "Nome do produto":r["Nome do orderbump 01"],
@@ -1315,7 +1554,6 @@ function expandFunilRows(rawRows){
         "Taxa da plataforma":"0",
       });
     }
-    // OB2
     if(r["Nome do orderbump 02"]){
       out.push({...base,
         "Nome do produto":r["Nome do orderbump 02"],
@@ -1383,7 +1621,9 @@ function deduplicateFunilRows(rows){
   return Array.from(groups.values());
 }
 
-function buildFunilData(rows, start, end){
+function buildFunilData(rows, start, end, funil){
+  const f=funil||S.currentFunil;
+  const primaryId=f==="mapa"?"mapa":"manual"; // produto de entrada do funil
   // filtered: só para análise de status/perdas — respeita período
   const filtered = rows.filter(r=>{
     if(!start && !end) return true;
@@ -1436,7 +1676,7 @@ function buildFunilData(rows, start, end){
   }
 
   for(const r of allRows){
-    const prodId = classifyProduct(r["Nome do produto"]);
+    const prodId = classifyProduct(r["Nome do produto"],f);
     if(!prodId) continue;
     const buyer = getOrCreate(r);
     const d = toISO(r["Data da compra"]||r["Data"]) || "";
@@ -1450,17 +1690,17 @@ function buildFunilData(rows, start, end){
   const counts = {};
   const fat    = {};
   const taxa   = {};
-  FUNIL_STEPS.forEach(s=>{ counts[s.id]=0; fat[s.id]=0; taxa[s.id]=0; });
+  getFunilSteps(f).forEach(s=>{ counts[s.id]=0; fat[s.id]=0; taxa[s.id]=0; });
 
   // Status analysis
   const statusCounts = {};
   const statusVals   = {};
   const statusByProd = {};
-  FUNIL_STEPS.forEach(s=>{ statusByProd[s.id]={}; });
+  getFunilSteps(f).forEach(s=>{ statusByProd[s.id]={}; });
 
   // All rows for status analysis (sem filtro de funil)
   for(const r of filtered){
-    const prodId=classifyProduct(r["Nome do produto"]);
+    const prodId=classifyProduct(r["Nome do produto"],f);
     if(!prodId) continue;
     const st=normalizeStatus((r["Status da compra"]||"").trim());
     const val=parseBRL(r["Valor do produto"]);
@@ -1470,28 +1710,24 @@ function buildFunilData(rows, start, end){
     statusByProd[prodId][st]=(statusByProd[prodId][st]||0)+1;
   }
 
-  // Funil: só Paga, só após manual, dentro do período selecionado
-  // Manual: conta todas as linhas brutas Paga no período
+  // Funil: só Paga, só após produto principal, dentro do período selecionado
+  // Produto principal: conta todas as linhas brutas Paga no período
   for(const r of filtered){
-    if(classifyProduct(r["Nome do produto"])!=="manual") continue;
+    if(classifyProduct(r["Nome do produto"],f)!==primaryId) continue;
     if(normalizeStatus((r["Status da compra"]||"").trim())!=="Paga") continue;
-    counts.manual++;
-    fat.manual   += parseBRL(r["Valor do produto"]);
-    taxa.manual  += parseBRLAbs(r["Taxa da plataforma"]);
+    counts[primaryId]++;
+    fat[primaryId]   += parseBRL(r["Valor do produto"]);
+    taxa[primaryId]  += parseBRLAbs(r["Taxa da plataforma"]);
   }
-  // Outros produtos: por comprador (identificado em allRows), conta compras
-  // que estão dentro do período E após a primeira compra do Manual (qualquer época)
+  // Outros produtos: por comprador, conta compras dentro do período E após o produto principal
   for(const [,buyer] of buyers){
     const paid = buyer.products.filter(p=>p.status==="Paga");
-    // Primeira compra do Manual de todos os tempos
-    const manualPurchases = paid.filter(p=>p.id==="manual").sort((a,b)=>a.date.localeCompare(b.date));
-    if(!manualPurchases.length) continue;
-    const manualDate = manualPurchases[0].date;
-    // Outros produtos: dentro do período E após o manual
+    const mainPurchases = paid.filter(p=>p.id===primaryId).sort((a,b)=>a.date.localeCompare(b.date));
+    if(!mainPurchases.length) continue;
+    const mainDate = mainPurchases[0].date;
     const others = paid.filter(p=>{
-      if(p.id==="manual") return false;
-      if(p.date < manualDate) return false;
-      // dentro do período
+      if(p.id===primaryId) return false;
+      if(p.date < mainDate) return false;
       if(start && p.date < start) return false;
       if(end   && p.date > end)   return false;
       return true;
@@ -1503,7 +1739,7 @@ function buildFunilData(rows, start, end){
     }
   }
 
-  const manualCount = counts.manual || 1;
+  const manualCount = counts[primaryId] || 1;
   const totalFat  = Object.values(fat).reduce((a,b)=>a+b,0);
   // Taxa Eduzz: inclui Paga + Reembolsado + Aguardando Reembolso
   // (Eduzz cobra taxa mesmo em reembolsos)
@@ -1512,19 +1748,19 @@ function buildFunilData(rows, start, end){
   for(const r of filtered){
     const st=normalizeStatus((r["Status da compra"]||"").trim());
     if(st!=="Reembolsado" && st!=="Aguardando Reembolso") continue;
-    const prodId=classifyProduct(r["Nome do produto"]);
+    const prodId=classifyProduct(r["Nome do produto"],f);
     if(!prodId) continue;
     totalTaxaReemb += parseBRLAbs(r["Taxa da plataforma"]);
   }
   const totalTaxa = totalTaxaPaga + totalTaxaReemb;
 
-  // Spend no período (da base Meta)
+  // Spend no período (da base Meta do funil ativo)
   let totalSpend=0;
-  const allDates=Object.keys(S.meta);
-  for(const d of allDates){
+  const _metaD=f==="mapa"?S.mapa.meta:S.meta;
+  for(const d of Object.keys(_metaD)){
     if(start && d<start) continue;
     if(end   && d>end)   continue;
-    totalSpend+=S.meta[d].spend||0;
+    totalSpend+=_metaD[d].spend||0;
   }
 
   return {
@@ -1532,14 +1768,12 @@ function buildFunilData(rows, start, end){
     roas: totalSpend>0 ? totalFat/totalSpend : 0,
     ltv:  totalFat/manualCount,
     lucro: totalFat - totalTaxa - (totalSpend*TAXA_IMPOSTO),
-    ascensao: manualCount>0 ? ((manualCount - (manualCount - Object.keys(counts).filter(k=>k!=="manual"&&counts[k]>0).reduce((a,k)=>Math.min(a,counts.manual),counts.manual)))/manualCount)*100 : 0,
-    // Taxa de ascensão: % de compradores únicos do Manual que compraram planLucro e/ou curso
     taxaAscensao: (function(){
       if(!manualCount) return 0;
       let cnt=0;
       for(const [,buyer] of buyers){
         const paid=buyer.products.filter(p=>p.status==="Paga");
-        const mp=paid.filter(p=>p.id==="manual").sort((a,b)=>a.date.localeCompare(b.date))[0];
+        const mp=paid.filter(p=>p.id===primaryId).sort((a,b)=>a.date.localeCompare(b.date))[0];
         if(!mp) continue;
         const ascendeu=paid.some(p=>(p.id==="planLucro"||p.id==="curso")&&p.date>=mp.date);
         if(ascendeu) cnt++;
@@ -1552,13 +1786,12 @@ function buildFunilData(rows, start, end){
 
 // ── Funil barras helper ────────────────────────────────────────────────────
 function funilBarras(counts,fat,pct){
-  const steps=[
-    {id:"manual",    label:"Manual Definitivo",    step:"Entrada",     color:"#185FA5"},
-    {id:"checklist", label:"Checklist",            step:"Order Bump 1",color:"#3B6D11"},
-    {id:"planFin",   label:"Plan. Financiamento",  step:"Order Bump 2",color:"#0F6E56"},
-    {id:"planLucro", label:"Planilha Lucro",       step:"Upsell",      color:"#854F0B"},
-    {id:"curso",     label:"Curso",                step:"Ascensão",    color:"#993C1D"},
-  ];
+  const CORES={
+    manual:      "#185FA5", checklist:    "#3B6D11", planFin:  "#0F6E56",
+    planLucro:   "#854F0B", curso:        "#993C1D",
+    mapa:        "#185FA5", guiaCaixa:    "#0F6E56", checklistMapa:"#3B6D11",
+  };
+  const steps=getFunilSteps().map(s=>({...s,color:CORES[s.id]||"#555"}));
   return steps.map(function(s){
     var p=pct(s.id);
     var barW=Math.max(p,0.5);
@@ -1592,7 +1825,9 @@ function renderFunil(){
   const el=document.getElementById("page-funil");if(!el)return;
 
   // Recalcula com filtro de período
-  const fd = buildFunilData(S.funilRows, S.fStartDate||"", S.fEndDate||"");
+  const _dd=D();
+  const fd = buildFunilData(_dd.funilRows, S.fStartDate||"", S.fEndDate||"");
+  const primaryKey = S.currentFunil==="mapa" ? "mapa" : "manual";
   const {counts,fat,manualCount,totalFat,totalSpend,roas,ltv,lucro,taxaAscensao,statusCounts,statusVals} = fd;
 
   const QS=[{k:"all",l:"Todos"},{k:"hoje",l:"Hoje"},{k:"ontem",l:"Ontem"},{k:"7d",l:"7 dias"},{k:"30d",l:"30 dias"},{k:"mes",l:"Este mês"}];
@@ -1653,7 +1888,7 @@ function renderFunil(){
     <div class="hdr">
       <div>
         <div class="hdr-title">Métricas do funil</div>
-        <div class="hdr-sub">atualizado em: ${S.updated||"—"} · base: ${manualCount} compradores do Manual</div>
+        <div class="hdr-sub">atualizado em: ${_dd.updated||"—"} · base: ${manualCount} compradores do ${S.currentFunil==="mapa"?"Mapa":"Manual"}</div>
       </div>
       <button class="btn-refresh" onclick="loadData()" ${S.loading?"disabled":""}>${S.loading?"Carregando...":"↻ Atualizar"}</button>
     </div>
@@ -1680,7 +1915,7 @@ function renderFunil(){
       <div class="kc"><div class="kc-lbl">Faturamento total</div><div class="kc-val" style="color:#1c1410;font-size:17px">${fBRL(totalFat)}</div><div class="kc-sub">todos os produtos</div></div>
       <div class="kc"><div class="kc-lbl">ROAS funil</div><div class="kc-val" style="color:${roasC};font-size:17px">${roas.toFixed(2)}x</div></div>
       <div class="kc"><div class="kc-lbl">Lucro bruto</div><div class="kc-val" style="color:${lucroC};font-size:17px">${fBRL(lucro)}</div></div>
-      <div class="kc"><div class="kc-lbl">LTV médio</div><div class="kc-val" style="color:#1c1410;font-size:17px">${fBRL(ltv)}</div><div class="kc-sub">por comprador Manual</div></div>
+      <div class="kc"><div class="kc-lbl">LTV médio</div><div class="kc-val" style="color:#1c1410;font-size:17px">${fBRL(ltv)}</div><div class="kc-sub">por comprador ${S.currentFunil==="mapa"?"Mapa":"Manual"}</div></div>
       <div class="kc"><div class="kc-lbl">Taxa de ascensão</div><div class="kc-val" style="color:#1c1410;font-size:17px">${taxaAscensao.toFixed(1)}%</div><div class="kc-sub">compraram 2+ produtos</div></div>
     </div>
 
@@ -1751,20 +1986,21 @@ function buildAnaContent(fd, buyers){
   const ALL_STATUS=["Paga","Aberta","Aguardando Pagamento","Em Recuperacao","Reembolsado","Aguardando Reembolso"];
 
   // Produtos disponíveis detectados automaticamente
+  const _anaD=D();
   const prodsFound=new Set();
-  for(const r of S.funilRows){ const id=classifyProduct(r["Nome do produto"]); if(id) prodsFound.add(id); }
-  const prods=FUNIL_STEPS.filter(s=>prodsFound.has(s.id));
+  for(const r of _anaD.funilRows){ const id=classifyProduct(r["Nome do produto"]); if(id) prodsFound.add(id); }
+  const prods=getFunilSteps().filter(s=>prodsFound.has(s.id));
 
   // Filtra rows por período desta aba
   const start=S.anaStartDate||"";
   const end=S.anaEndDate||"";
-  const rows=(start||end)?S.funilRows.filter(r=>{
+  const rows=(start||end)?_anaD.funilRows.filter(r=>{
     const d=toISO(r["Data da compra"]||r["Data"]);
     if(!d) return false;
     if(start&&d<start) return false;
     if(end&&d>end) return false;
     return true;
-  }):S.funilRows;
+  }):_anaD.funilRows;
 
   // Re-constrói buyers para o período desta aba se diferente do funil
   let ana_buyers=buyers;
@@ -1826,7 +2062,7 @@ function buildAnaContent(fd, buyers){
       const mp=paid.filter(p=>p.id==="manual").sort((a,z)=>a.date.localeCompare(z.date))[0]; if(!mp) continue;
       const after=paid.filter(p=>p.date>=mp.date);
       const seen=new Set(); const ids=[];
-      for(const step of FUNIL_STEPS){ if(after.find(p=>p.id===step.id)&&!seen.has(step.id)){seen.add(step.id);ids.push(step.id);} }
+      for(const step of getFunilSteps()){ if(after.find(p=>p.id===step.id)&&!seen.has(step.id)){seen.add(step.id);ids.push(step.id);} }
       const key=ids.join("+");
       if(!jmap.has(key)) jmap.set(key,{ids,count:0});
       jmap.get(key).count++;
@@ -1834,7 +2070,7 @@ function buildAnaContent(fd, buyers){
     let arr=Array.from(jmap.values());
     if(filter==="with_curso") arr=arr.filter(j=>j.ids.includes("curso"));
     else if(filter==="both_obs") arr=arr.filter(j=>j.ids.includes("checklist")&&j.ids.includes("planFin"));
-    else if(filter==="all_products") arr=arr.filter(j=>FUNIL_STEPS.every(s=>j.ids.includes(s.id)));
+    else if(filter==="all_products") arr=arr.filter(j=>getFunilSteps().every(s=>j.ids.includes(s.id)));
     else if(filter==="manual_only") arr=arr.filter(j=>j.ids.length===1&&j.ids[0]==="manual");
     arr.sort((a,b)=>b.count-a.count);
     return arr.slice(0,8);
@@ -1855,10 +2091,10 @@ function buildAnaContent(fd, buyers){
     return{data,totals};
   }
 
-  function prodLabel(id){return FUNIL_STEPS.find(s=>s.id===id)?.label||id;}
+  function prodLabel(id){return getFunilSteps().find(s=>s.id===id)?.label||id;}
   function jornadaLabel(ids){
     if(ids.length===1&&ids[0]==="manual") return "Manual apenas";
-    return ids.map(id=>FUNIL_STEPS.find(s=>s.id===id)?.label||id).join(" → ");
+    return ids.map(id=>getFunilSteps().find(s=>s.id===id)?.label||id).join(" → ");
   }
 
   // Expõe funções para os botões
@@ -1884,7 +2120,7 @@ function buildAnaContent(fd, buyers){
   const {data:stData,totals:stTotals}=calcStatus(S.anaStatusFiltro,S.anaStatusGroup);
   const maxJ=jornadaR.length?jornadaR[0].count:1;
   const stKeys=Object.keys(stData).sort();
-  const stCols=ALL_STATUS.filter(s=>S.funilRows.some(r=>(r["Status da compra"]||"").trim()===s));
+  const stCols=ALL_STATUS.filter(s=>_anaD.funilRows.some(r=>(r["Status da compra"]||"").trim()===s));
 
   const QS2=[{k:"all",l:"Todos"},{k:"hoje",l:"Hoje"},{k:"ontem",l:"Ontem"},{k:"7d",l:"7 dias"},{k:"30d",l:"30 dias"},{k:"mes",l:"Este mês"}];
   const TABS=[{k:"tempo",l:"⏱ Tempo entre compras"},{k:"jornada",l:"🛒 Jornadas de compra"},{k:"status",l:"📋 Status de compra"}];
@@ -1971,7 +2207,7 @@ function buildAnaContent(fd, buyers){
           ${stKeys.map((key,i)=>{
             const row=stData[key]||{};
             const tot=stCols.reduce((a,s)=>a+(row[s]||0),0);
-            const lbl=S.anaStatusGroup==="produto"?(FUNIL_STEPS.find(s=>s.id===key)?.label||key):key;
+            const lbl=S.anaStatusGroup==="produto"?(getFunilSteps().find(s=>s.id===key)?.label||key):key;
             return `<tr style="border-bottom:1px solid var(--border);background:${i%2===0?"var(--card)":"var(--bg)"}">
               <td style="padding:9px 12px;font-weight:500;border-right:1px solid var(--border)">${lbl}</td>
               ${stCols.map(s=>`<td style="padding:9px 12px;text-align:center;border-right:1px solid var(--border);color:${s==="Paga"?"#1a7a4a":["Reembolsado","Aguardando Reembolso"].includes(s)?"#b91c1c":s==="Em Recuperacao"?"#c07800":"var(--text)"}">${row[s]||0}</td>`).join("")}
