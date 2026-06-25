@@ -26,7 +26,7 @@ html,body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;
 .master-lbl{font-size:8px;font-weight:700;color:#4a3828;text-transform:uppercase;letter-spacing:.1em;margin-bottom:6px;padding:0 4px}
 .master-tab{display:flex;align-items:center;justify-content:space-between;padding:7px 10px;border-radius:6px;cursor:pointer;margin-bottom:3px;border:1px solid transparent;transition:all .15s;text-decoration:none}
 .master-tab.mt-active{background:rgba(232,98,26,0.12);border-color:rgba(232,98,26,0.3)}
-.master-tab.mt-inactive{opacity:.5;pointer-events:none;cursor:default}
+.master-tab.mt-inactive{opacity:.45}
 .master-tab:hover.mt-active{background:rgba(232,98,26,0.18)}
 .master-tab-name{font-size:11px;font-weight:600}
 .master-tab.mt-active .master-tab-name{color:#e8621a}
@@ -138,10 +138,10 @@ input[type=date]::-webkit-calendar-picker-indicator{opacity:.5;cursor:pointer}
         </div>
         <div class="mt-dot"></div>
       </a>
-      <a class="master-tab mt-active" onclick="switchFunil('mapa')">
+      <a class="master-tab mt-inactive" onclick="switchFunil('mapa')">
         <div>
           <div class="master-tab-name">Mapa da Casa</div>
-          <div style="font-size:9px;color:#e8621a;margin-top:1px" id="mt-mapa-sub">ativo</div>
+          <div style="font-size:9px;color:#5a4838;margin-top:1px" id="mt-mapa-sub">inativo</div>
         </div>
         <div class="mt-dot"></div>
       </a>
@@ -841,22 +841,22 @@ function getDayMetrics(iso){
 // ── Navigation ─────────────────────────────────────────────────────────────
 function switchFunil(id){
   S.currentFunil=id;
-  document.querySelectorAll('.master-tab').forEach(t=>{
-    t.classList.remove('mt-active');
-    t.classList.add('mt-inactive');
-    t.style.pointerEvents='none';
-    t.style.opacity='.5';
+  // Atualiza visual das tabs
+  document.querySelectorAll('.master-tab').forEach((t,i)=>{
+    const isActive=(i===0&&id==='manual')||(i===1&&id==='mapa');
+    t.classList.toggle('mt-active', isActive);
+    t.classList.toggle('mt-inactive', !isActive);
+    t.style.pointerEvents='';
+    t.style.opacity='';
+    // Atualiza sub-label de cada tab
+    const sub=t.querySelector('[id^="mt-"]');
+    if(sub) sub.textContent=isActive?'ativo':'';
+    const dot=t.querySelector('.mt-dot');
+    if(dot) dot.style.background=isActive?'#e8621a':'#3a2a1e';
+    const name=t.querySelector('.master-tab-name');
+    if(name) name.style.color=isActive?'#e8621a':'#5a4838';
   });
-  const idx=id==='mapa'?1:0;
-  const tab=document.querySelectorAll('.master-tab')[idx];
-  if(tab){
-    tab.classList.remove('mt-inactive');
-    tab.classList.add('mt-active');
-    tab.style.pointerEvents='';
-    tab.style.opacity='';
-  }
   document.getElementById('subnav-lbl').textContent=id==='mapa'?'Mapa da Casa':'Manual Definitivo';
-  // Reseta produto padrão da análise tempo ao trocar funil
   S.anaTempoProd1=id==='mapa'?'mapa':'manual';
   S.anaTempoProd2='curso';
   navTo(S.currentPage);
@@ -1711,13 +1711,42 @@ function buildFunilData(rows, start, end, funil){
   }
 
   // Funil: só Paga, só após produto principal, dentro do período selecionado
-  // Produto principal: conta todas as linhas brutas Paga no período
-  for(const r of filtered){
-    if(classifyProduct(r["Nome do produto"],f)!==primaryId) continue;
-    if(normalizeStatus((r["Status da compra"]||"").trim())!=="Paga") continue;
-    counts[primaryId]++;
-    fat[primaryId]   += parseBRL(r["Valor do produto"]);
-    taxa[primaryId]  += parseBRLAbs(r["Taxa da plataforma"]);
+  // Produto principal: agrupa por comprador+data (igual à aba Principal) para evitar duplicatas
+  const OB_FAT_IDS = f==="mapa"
+    ? new Set(["mapa","guiaCaixa","checklistMapa"])
+    : new Set(["manual","checklist","planFin"]);
+
+  {
+    const ST_PRI={"Reembolsado":6,"Aguardando Reembolso":5,"Em Recuperacao":4,"Paga":3,"Expirado":2,"Aberta":1,"":0};
+    const grupos=new Map();
+    for(const r of filtered){
+      const prodId=classifyProduct(r["Nome do produto"],f);
+      if(!prodId) continue;
+      const st=normalizeStatus((r["Status da compra"]||"").trim());
+      if(!st) continue;
+      const d=toISO(r["Data da compra"]||r["Data"])||"";
+      const em=(r["Email"]||"").toLowerCase().trim();
+      const cpf=(r["CPF Comprador"]||"").replace(/[^\d]/g,"");
+      const tel=(r["Telefone"]||"").replace(/[^\d]/g,"");
+      const identity=em||cpf||tel; if(!identity) continue;
+      const key=identity+"|"+d;
+      if(!grupos.has(key)) grupos.set(key,{st,d,valor:0,taxa:0,hasPrimary:false});
+      const g=grupos.get(key);
+      // Resolve status: mantém o mais grave
+      if((ST_PRI[st]||0)>(ST_PRI[g.st]||0)) g.st=st;
+      if(prodId===primaryId) g.hasPrimary=true;
+      // Soma valor só dos produtos de faturamento (principal + OBs diretos)
+      if(OB_FAT_IDS.has(prodId) && st==="Paga"){
+        g.valor += parseBRL(r["Valor do produto"]);
+        g.taxa  += parseBRLAbs(r["Taxa da plataforma"]);
+      }
+    }
+    for(const [,g] of grupos){
+      if(!g.hasPrimary || g.st!=="Paga") continue;
+      counts[primaryId]++;
+      fat[primaryId]   += g.valor;
+      taxa[primaryId]  += g.taxa;
+    }
   }
   // Outros produtos: por comprador, conta compras dentro do período E após o produto principal
   for(const [,buyer] of buyers){
@@ -1726,7 +1755,7 @@ function buildFunilData(rows, start, end, funil){
     if(!mainPurchases.length) continue;
     const mainDate = mainPurchases[0].date;
     const others = paid.filter(p=>{
-      if(p.id===primaryId) return false;
+      if(OB_FAT_IDS.has(p.id)) return false; // OBs já foram somados acima
       if(p.date < mainDate) return false;
       if(start && p.date < start) return false;
       if(end   && p.date > end)   return false;
