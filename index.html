@@ -1710,18 +1710,20 @@ function buildFunilData(rows, start, end, funil){
     statusByProd[prodId][st]=(statusByProd[prodId][st]||0)+1;
   }
 
-  // Funil: só Paga, só após produto principal, dentro do período selecionado
-  // Produto principal: agrupa por comprador+data (igual à aba Principal) para evitar duplicatas
+  // Funil: só Paga, dentro do período
+  // OBs de faturamento (produto principal + OBs diretos)
   const OB_FAT_IDS = f==="mapa"
     ? new Set(["mapa","guiaCaixa","checklistMapa"])
     : new Set(["manual","checklist","planFin"]);
 
+  // Passo 1: agrupa por comprador+data para calcular faturamento do produto principal
+  // (evita duplicatas entre webhook e histórica)
   {
     const ST_PRI={"Reembolsado":6,"Aguardando Reembolso":5,"Em Recuperacao":4,"Paga":3,"Expirado":2,"Aberta":1,"":0};
     const grupos=new Map();
     for(const r of filtered){
       const prodId=classifyProduct(r["Nome do produto"],f);
-      if(!prodId) continue;
+      if(!OB_FAT_IDS.has(prodId)) continue; // só produto principal + OBs diretos aqui
       const st=normalizeStatus((r["Status da compra"]||"").trim());
       if(!st) continue;
       const d=toISO(r["Data da compra"]||r["Data"])||"";
@@ -1730,32 +1732,37 @@ function buildFunilData(rows, start, end, funil){
       const tel=(r["Telefone"]||"").replace(/[^\d]/g,"");
       const identity=em||cpf||tel; if(!identity) continue;
       const key=identity+"|"+d;
-      if(!grupos.has(key)) grupos.set(key,{st,d,valor:0,taxa:0,hasPrimary:false});
+      if(!grupos.has(key)) grupos.set(key,{st,d,valor:0,taxa:0,hasPrimary:false,obCounts:{}});
       const g=grupos.get(key);
-      // Resolve status: mantém o mais grave
       if((ST_PRI[st]||0)>(ST_PRI[g.st]||0)) g.st=st;
       if(prodId===primaryId) g.hasPrimary=true;
-      // Soma valor só dos produtos de faturamento (principal + OBs diretos)
-      if(OB_FAT_IDS.has(prodId) && st==="Paga"){
+      if(st==="Paga"){
         g.valor += parseBRL(r["Valor do produto"]);
         g.taxa  += parseBRLAbs(r["Taxa da plataforma"]);
+        // Conta cada OB individualmente dentro do grupo
+        if(prodId!==primaryId) g.obCounts[prodId]=(g.obCounts[prodId]||0)+1;
       }
     }
     for(const [,g] of grupos){
       if(!g.hasPrimary || g.st!=="Paga") continue;
       counts[primaryId]++;
-      fat[primaryId]   += g.valor;
-      taxa[primaryId]  += g.taxa;
+      fat[primaryId] += g.valor;
+      taxa[primaryId]+= g.taxa;
+      // Contagem dos OBs desta transação
+      for(const [obId, obQtd] of Object.entries(g.obCounts)){
+        counts[obId]=(counts[obId]||0)+obQtd;
+      }
     }
   }
-  // Outros produtos: por comprador, conta compras dentro do período E após o produto principal
+
+  // Passo 2: upsell e ascensão (planLucro, curso) — por comprador, após produto principal
   for(const [,buyer] of buyers){
     const paid = buyer.products.filter(p=>p.status==="Paga");
     const mainPurchases = paid.filter(p=>p.id===primaryId).sort((a,b)=>a.date.localeCompare(b.date));
     if(!mainPurchases.length) continue;
     const mainDate = mainPurchases[0].date;
     const others = paid.filter(p=>{
-      if(OB_FAT_IDS.has(p.id)) return false; // OBs já foram somados acima
+      if(OB_FAT_IDS.has(p.id)) return false; // OBs já contados acima
       if(p.date < mainDate) return false;
       if(start && p.date < start) return false;
       if(end   && p.date > end)   return false;
