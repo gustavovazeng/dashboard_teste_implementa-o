@@ -332,35 +332,6 @@ function extractAdId(raw){
 async function fetchSheetPaged(sheetId, tabName, apiKey, blockSize=5000){
   const base=`https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/`;
   const enc=encodeURIComponent(tabName);
-  // Primeiro busca só o cabeçalho para saber as colunas
-  const headRes=await fetch(`${base}${enc}!A1:ZZ1?key=${apiKey}`);
-  if(!headRes.ok) throw new Error(`HTTP ${headRes.status} ao carregar ${tabName}`);
-  const headJ=await headRes.json();
-  const header=(headJ.values||[])[0]||[];
-
-  // Busca dados em blocos
-  let allRows=[header];
-  let startRow=2;
-  while(true){
-    const endRow=startRow+blockSize-1;
-    const range=`${enc}!A${startRow}:ZZ${endRow}`;
-    const res=await fetch(`${base}${range}?key=${apiKey}`);
-    if(!res.ok) throw new Error(`HTTP ${res.status} ao carregar ${tabName} (linha ${startRow})`);
-    const j=await res.json();
-    const rows=j.values||[];
-    if(!rows.length) break;
-    allRows=[...allRows,...rows];
-    if(rows.length<blockSize) break;
-    startRow+=blockSize;
-  }
-  return {values:allRows};
-}
-
-// ── Load data ──────────────────────────────────────────────────────────────
-// Busca uma aba em blocos de 5000 linhas para evitar timeout em abas grandes
-async function fetchSheetPaged(sheetId, tabName, apiKey, blockSize=5000){
-  const base=`https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/`;
-  const enc=encodeURIComponent(tabName);
   const headRes=await fetch(`${base}${enc}!A1:ZZ1?key=${apiKey}`);
   if(!headRes.ok) throw new Error(`HTTP ${headRes.status} ao carregar ${tabName}`);
   const headJ=await headRes.json();
@@ -382,92 +353,79 @@ async function fetchSheetPaged(sheetId, tabName, apiKey, blockSize=5000){
   return {values:allRows};
 }
 
-function _processRaw(mj,vj,mmj){
-  // Meta — por dia (para abas Principal e Tráfego)
-  const mD={};
-  // Meta — por Ad ID (para aba Anúncios)
-  const mByAd={};
-  const mByAdByDate={};  // {advCode: {date: {spend,clicks,impressions}}}
-  for(const r of parseSheet(mj)){
-    const d=toISO(r["Date"]);if(!d)continue;
-    if(!mD[d])mD[d]={spend:0,clicks:0,impressions:0,landingViews:0,checkouts:0,purchases:0,viewContent:0};
-    mD[d].spend        += parseBRL(r["Spend (Cost, Amount Spent)"]);
-    mD[d].clicks       += parseInt(r["Action Link Clicks"]||0)||0;
-    mD[d].impressions  += parseInt(r["Impressions"]||0)||0;
-    mD[d].landingViews += parseInt(r["Action Landing Page View"]||0)||0;
-    mD[d].checkouts    += parseInt(r["Action FB Pixel Initiate Checkout (Offsite Conversion)"]||0)||0;
-    mD[d].viewContent  += parseInt(r["Action Omni View Content"]||0)||0;
-    const adId=r["Ad ID"]||r["Ad Id"]||"";
-    const adName=r["Ad Name"]||"";
-    const igUrl=r["Instagram Permalink URL"]||"";
-    const advCode=extractAdvCode(adName);
-    if(advCode){
-      if(!mByAd[advCode])mByAd[advCode]={advCode,adIds:new Set(),spend:0,clicks:0,impressions:0,igUrl:"",dates:new Set()};
-      if(adId) mByAd[advCode].adIds.add(adId);
-      mByAd[advCode].spend       += parseBRL(r["Spend (Cost, Amount Spent)"]);
-      mByAd[advCode].clicks      += parseInt(r["Action Link Clicks"]||0)||0;
-      mByAd[advCode].impressions += parseInt(r["Impressions"]||0)||0;
-      mByAd[advCode].dates.add(d);
-      if(igUrl && !mByAd[advCode].igUrl) mByAd[advCode].igUrl=igUrl;
-      if(!mByAdByDate[advCode]) mByAdByDate[advCode]={};
-      if(!mByAdByDate[advCode][d]) mByAdByDate[advCode][d]={spend:0,clicks:0,impressions:0,adIds:new Set(),igUrl:""};
-      mByAdByDate[advCode][d].spend       += parseBRL(r["Spend (Cost, Amount Spent)"]);
-      mByAdByDate[advCode][d].clicks      += parseInt(r["Action Link Clicks"]||0)||0;
-      mByAdByDate[advCode][d].impressions += parseInt(r["Impressions"]||0)||0;
-      if(adId) mByAdByDate[advCode][d].adIds.add(adId);
-      if(igUrl && !mByAdByDate[advCode][d].igUrl) mByAdByDate[advCode][d].igUrl=igUrl;
-    }
-  }
-  S.meta=mD;
-  S.metaByAd=mByAd;
-  S.metaByAdByDate=mByAdByDate;
+async function loadData(force=false){
+  if(IS_FILE){ S.firstLoad=false;render();return; }
 
-  // Vendas Manual — base unificada (formato webhook)
-  {
-    const vD={};
-    const vByAd={};
-    const vByAdDate={};
-    const ST_PRI={"Reembolsado":6,"Aguardando Reembolso":5,"Em Recuperacao":4,"Paga":3,"Expirado":2,"Aberta":1,"":0};
-    const whGrupos=new Map();
-    for(const r of parseSheet(vj)){
-      const nomePrincipal=(r["Nome do produto principal"]||"").toUpperCase();
-      if(!nomePrincipal.includes("MANUAL DEFINITIVO")) continue;
-      const st=normalizeStatus((r["Status da compra"]||"").trim());
-      if(!st) continue;
-      const d=toISO(r["Data da compra"]);if(!d)continue;
-      const em=(r["Email"]||"").toLowerCase().trim();
-      const cpf=(r["CPF Comprador"]||"").replace(/[^\d]/g,"");
-      const tel=(r["Telefone"]||"").replace(/[^\d]/g,"");
-      const identity=em||cpf||tel;if(!identity)continue;
-      const key=identity+"|"+d;
-      if(!whGrupos.has(key)){
-        whGrupos.set(key,{st,d,valor:parseBRL(r["Valor do produto"]),taxa:parseBRLAbs(r["Taxa da plataforma"]),adId:extractAdId(r["Ad Id"]||"")});
-      } else {
-        const g=whGrupos.get(key);
-        if((ST_PRI[st]||0)>(ST_PRI[g.st]||0)) g.st=st;
-      }
-    }
-    for(const [,g] of whGrupos){
-      if(g.st!=="Paga") continue;
-      if(!vD[g.d])vD[g.d]={qtd:0,valor:0,taxa:0};
-      vD[g.d].qtd+=1; vD[g.d].valor+=g.valor; vD[g.d].taxa+=g.taxa;
-      if(g.adId){
-        if(!vByAd[g.adId])vByAd[g.adId]={qtd:0,valor:0,taxa:0};
-        vByAd[g.adId].qtd+=1; vByAd[g.adId].valor+=g.valor; vByAd[g.adId].taxa+=g.taxa;
-        if(!vByAdDate[g.adId]) vByAdDate[g.adId]={};
-        if(!vByAdDate[g.adId][g.d]) vByAdDate[g.adId][g.d]={qtd:0,valor:0,taxa:0};
-        vByAdDate[g.adId][g.d].qtd+=1; vByAdDate[g.adId][g.d].valor+=g.valor; vByAdDate[g.adId][g.d].taxa+=g.taxa;
-      }
-    }
-    S.vendas=vD;
-    S.vendasByAd=vByAd;
-    S.vendasByAdDate=vByAdDate;
+  // ── Cache: na carga inicial, usa dados salvos para abrir instantâneo ─────
+  let mj,vj,hj,mmj;
+  let usedCache=false;
+  if(!force && S.firstLoad){
+    try{
+      const raw=localStorage.getItem(CACHE_KEY);
+      if(raw){ ({mj,vj,hj,mmj}=JSON.parse(raw)); usedCache=true; }
+    }catch(e){ localStorage.removeItem(CACHE_KEY); }
   }
 
-  // Meta Mapa
-  {
-    const mD={}, mByAd={}, mByAdByDate={};
-    for(const r of parseSheet(mmj)){
+  if(!usedCache){
+    S.loading=true;S.error=null;
+    if(!S.firstLoad) render();
+    // Timeout de segurança: se demorar >90s libera a tela
+    const _t=setTimeout(()=>{
+      if(S.firstLoad){S.firstLoad=false;S.loading=false;
+        S.error="Tempo esgotado. Verifique a conexão e tente atualizar.";render();}
+    },90000);
+    try{
+      const [mr,vr,hr,mmr]=await Promise.all([fetch(URL_META),fetch(URL_VENDAS),fetch(URL_HIST),fetch(URL_META_MAPA)]);
+      if(!mr.ok)throw new Error(`HTTP ${mr.status} ao carregar Meta`);
+      if(!vr.ok)throw new Error(`HTTP ${vr.status} ao carregar Vendas`);
+      if(!hr.ok)throw new Error(`HTTP ${hr.status} ao carregar Histórico`);
+      if(!mmr.ok)throw new Error(`HTTP ${mmr.status} ao carregar Meta Mapa`);
+      [mj,vj,hj,mmj]=await Promise.all([mr.json(),vr.json(),hr.json(),mmr.json()]);
+      // Salva no cache para próximas aberturas
+      try{ localStorage.setItem(CACHE_KEY,JSON.stringify({mj,vj,hj,mmj})); }catch(e){ console.warn("Cache cheio:",e); }
+      clearTimeout(_t);
+    }catch(e){
+      clearTimeout(_t);
+      S.error="Erro ao carregar: "+e.message;
+      S.firstLoad=false; S.loading=false;
+      console.error("loadData error:",e);
+      render(); return;
+    }
+    S.loading=false;
+  }
+
+  // ── Processamento dos dados ───────────────────────────────────────────────
+  try{
+    // Converte base histórica (formato vertical: 1 linha = 1 produto, status texto)
+    // para o formato interno comum, equivalente ao que expandFunilRows produziria
+    function parseHistRow(r){
+      const st=(r["Status da compra"]||"").trim(); // já é texto
+      const dataBruta=stripTime(r["Data da compra"]||"");
+      return {
+        "Email":r["Email"]||"",
+        "CPF Comprador":r["CPF Comprador"]||"",
+        "Telefone":r["Telefone"]||"",
+        "Nome":r["Nome"]||"",
+        "Status da compra":st,
+        "Data da compra":dataBruta,
+        "Nome do produto":r["Nome do produto"]||"",
+        "Valor do produto":r["Valor do produto"]||"0",
+        "Taxa da plataforma":r["Taxa da plataforma"]||"0",
+        "Ad Id":r["Ad Id"]||"",
+        _src:"hist",
+      };
+    }
+    const histRows=parseSheet(hj).map(parseHistRow).filter(r=>r["Nome do produto"]);
+
+    // Funil usa a mesma planilha de vendas (webhook)
+    const fj=vj;
+
+    // Meta — por dia (para abas Principal e Tráfego)
+    const mD={};
+    // Meta — por Ad ID (para aba Anúncios)
+    const mByAd={};
+    const mByAdByDate={};  // {advCode: {date: {spend,clicks,impressions}}}
+    for(const r of parseSheet(mj)){
       const d=toISO(r["Date"]);if(!d)continue;
       if(!mD[d])mD[d]={spend:0,clicks:0,impressions:0,landingViews:0,checkouts:0,purchases:0,viewContent:0};
       mD[d].spend        += parseBRL(r["Spend (Cost, Amount Spent)"]);
@@ -497,164 +455,309 @@ function _processRaw(mj,vj,mmj){
         if(igUrl && !mByAdByDate[advCode][d].igUrl) mByAdByDate[advCode][d].igUrl=igUrl;
       }
     }
-    S.mapa.meta=mD; S.mapa.metaByAd=mByAd; S.mapa.metaByAdByDate=mByAdByDate;
-  }
+    S.meta=mD;
+    S.metaByAd=mByAd;
+    S.metaByAdByDate=mByAdByDate;
 
-  // Vendas Mapa — base unificada (formato webhook)
-  {
-    const vD={}, vByAd={}, vByAdDate={};
-    const ST_PRI={"Reembolsado":6,"Aguardando Reembolso":5,"Em Recuperacao":4,"Paga":3,"Expirado":2,"Aberta":1,"":0};
-    const whGrupos=new Map();
-    for(const r of parseSheet(vj)){
-      const nomePrincipal=(r["Nome do produto principal"]||"").toUpperCase();
-      const nomeOB1=(r["Nome do orderbump 01"]||"").toUpperCase();
-      const nomeOB2=(r["Nome do orderbump 02"]||"").toUpperCase();
-      const ehMapa=nomePrincipal.includes("MAPA DA CASA")||nomeOB1.includes("MAPA DA CASA")||nomeOB2.includes("MAPA DA CASA");
-      if(!ehMapa) continue;
-      const st=normalizeStatus((r["Status da compra"]||"").trim());
-      if(!st) continue;
-      const d=toISO(r["Data da compra"]);if(!d)continue;
-      const em=(r["Email"]||"").toLowerCase().trim();
-      const cpf=(r["CPF Comprador"]||"").replace(/[^\d]/g,"");
-      const tel=(r["Telefone"]||"").replace(/[^\d]/g,"");
-      const identity=em||cpf||tel;if(!identity)continue;
-      const key=identity+"|"+d;
-      const campos=[
-        {nome:nomePrincipal, val:r["Valor do produto principal"]||r["Valor do produto"]||"0", taxa:r["Taxa da plataforma"]||"0"},
-        {nome:nomeOB1,       val:r["Valor order bump 01"]||"0", taxa:"0"},
-        {nome:nomeOB2,       val:r["Valor order bump 02"]||"0", taxa:"0"},
-      ];
-      let valor=0, taxa=0;
-      for(const c of campos){
-        if(!c.nome) continue;
-        const pid=classifyProduct(c.nome,"mapa");
-        if(pid==="mapa"||pid==="guiaCaixa"||pid==="checklistMapa"){
-          valor+=parseBRL(c.val);
-          taxa+=parseBRLAbs(c.taxa);
+    // Vendas Manual — webhook (dados a partir de 04/06/2026)
+    const vD={};
+    const vByAd={};
+    const vByAdDate={};
+    {
+      const ST_PRI={"Reembolsado":6,"Aguardando Reembolso":5,"Em Recuperacao":4,"Paga":3,"Expirado":2,"Aberta":1,"":0};
+      const whGrupos=new Map();
+      for(const r of parseSheet(vj)){
+        const nomePrincipal=(r["Nome do produto principal"]||"").toUpperCase();
+        if(!nomePrincipal.includes("MANUAL DEFINITIVO")) continue;
+        const st=normalizeStatus((r["Status da compra"]||"").trim());
+        if(!st) continue;
+        const d=toISO(r["Data da compra"]);if(!d)continue;
+        const em=(r["Email"]||"").toLowerCase().trim();
+        const cpf=(r["CPF Comprador"]||"").replace(/[^\d]/g,"");
+        const tel=(r["Telefone"]||"").replace(/[^\d]/g,"");
+        const identity=em||cpf||tel;if(!identity)continue;
+        const key=identity+"|"+d;
+        if(!whGrupos.has(key)){
+          whGrupos.set(key,{st,d,valor:parseBRL(r["Valor do produto"]),taxa:parseBRLAbs(r["Taxa da plataforma"]),adId:extractAdId(r["Ad Id"]||"")});
+        } else {
+          const g=whGrupos.get(key);
+          if((ST_PRI[st]||0)>(ST_PRI[g.st]||0)) g.st=st;
         }
       }
-      if(!whGrupos.has(key)){
-        whGrupos.set(key,{st,d,valor,taxa,adId:extractAdId(r["Ad Id"]||"")});
-      } else {
-        const g=whGrupos.get(key);
-        if((ST_PRI[st]||0)>(ST_PRI[g.st]||0)) g.st=st;
+      for(const [,g] of whGrupos){
+        if(g.st!=="Paga") continue;
+        if(!vD[g.d])vD[g.d]={qtd:0,valor:0,taxa:0};
+        vD[g.d].qtd+=1; vD[g.d].valor+=g.valor; vD[g.d].taxa+=g.taxa;
+        if(g.adId){
+          if(!vByAd[g.adId])vByAd[g.adId]={qtd:0,valor:0,taxa:0};
+          vByAd[g.adId].qtd+=1; vByAd[g.adId].valor+=g.valor; vByAd[g.adId].taxa+=g.taxa;
+          if(!vByAdDate[g.adId]) vByAdDate[g.adId]={};
+          if(!vByAdDate[g.adId][g.d]) vByAdDate[g.adId][g.d]={qtd:0,valor:0,taxa:0};
+          vByAdDate[g.adId][g.d].qtd+=1; vByAdDate[g.adId][g.d].valor+=g.valor; vByAdDate[g.adId][g.d].taxa+=g.taxa;
+        }
       }
     }
-    for(const [,g] of whGrupos){
-      if(g.st!=="Paga") continue;
-      if(!vD[g.d])vD[g.d]={qtd:0,valor:0,taxa:0};
-      vD[g.d].qtd+=1; vD[g.d].valor+=g.valor; vD[g.d].taxa+=g.taxa;
-      if(g.adId){
-        if(!vByAd[g.adId])vByAd[g.adId]={qtd:0,valor:0,taxa:0};
-        vByAd[g.adId].qtd+=1; vByAd[g.adId].valor+=g.valor; vByAd[g.adId].taxa+=g.taxa;
-        if(!vByAdDate[g.adId]) vByAdDate[g.adId]={};
-        if(!vByAdDate[g.adId][g.d]) vByAdDate[g.adId][g.d]={qtd:0,valor:0,taxa:0};
-        vByAdDate[g.adId][g.d].qtd+=1; vByAdDate[g.adId][g.d].valor+=g.valor; vByAdDate[g.adId][g.d].taxa+=g.taxa;
+    // Vendas Manual — base histórica manual (dados até 04/06/2026)
+    {
+      const grupos=new Map();
+      for(const r of histRows){
+        const st=(r["Status da compra"]||"").trim();
+        if(st!=="Paga") continue;
+        const prodId=classifyProduct(r["Nome do produto"]||"");
+        if(!prodId) continue;
+        const d=toISO(r["Data da compra"]);if(!d)continue;
+        const em=(r["Email"]||"").toLowerCase().trim();
+        const cpf=(r["CPF Comprador"]||"").replace(/[^\d]/g,"");
+        const tel=(r["Telefone"]||"").replace(/[^\d]/g,"");
+        const identity=em||cpf||tel;if(!identity)continue;
+        const key=identity+"|"+d;
+        if(!grupos.has(key)) grupos.set(key,{d,manual:false,valor:0,taxa:0,adId:null,rows:[]});
+        const g=grupos.get(key);
+        g.rows.push(r);
+        const OB_IDS=new Set(["manual","checklist","planFin"]);
+        if(OB_IDS.has(prodId)){
+          g.valor+=parseBRL(r["Valor do produto"]);
+          g.taxa+=parseBRLAbs(r["Taxa da plataforma"]);
+        }
+        if(prodId==="manual"){
+          g.manual=true;
+          if(!g.adId) g.adId=extractAdId(r["Ad Id"]||"");
+        }
+      }
+      for(const [,g] of grupos){
+        if(!g.manual) continue;
+        const d=g.d;
+        if(!vD[d])vD[d]={qtd:0,valor:0,taxa:0};
+        vD[d].qtd+=1; vD[d].valor+=g.valor; vD[d].taxa+=g.taxa;
+        if(g.adId){
+          if(!vByAd[g.adId])vByAd[g.adId]={qtd:0,valor:0,taxa:0};
+          vByAd[g.adId].qtd+=1; vByAd[g.adId].valor+=g.valor; vByAd[g.adId].taxa+=g.taxa;
+          if(!vByAdDate[g.adId]) vByAdDate[g.adId]={};
+          if(!vByAdDate[g.adId][d]) vByAdDate[g.adId][d]={qtd:0,valor:0,taxa:0};
+          vByAdDate[g.adId][d].qtd+=1; vByAdDate[g.adId][d].valor+=g.valor; vByAdDate[g.adId][d].taxa+=g.taxa;
+        }
       }
     }
-    S.mapa.vendas=vD; S.mapa.vendasByAd=vByAd; S.mapa.vendasByAdDate=vByAdDate;
-  }
+    S.vendas=vD;
+    S.vendasByAd=vByAd;
+    S.vendasByAdDate=vByAdDate;
 
-  // Funil Manual — base unificada (apenas webhook)
-  const rawFunil = parseSheet(vj);
-  const webhookFunilRows = expandFunilRows(rawFunil,"manual");
-  S.funilRows = deduplicateFunilRows(webhookFunilRows);
-  try{ S.funil = buildFunilData(S.funilRows, S.fStartDate, S.fEndDate); }
-  catch(fe){ console.error("buildFunilData error:",fe); S.funil={}; }
-
-  // Funil Mapa — base unificada (apenas webhook)
-  S.mapa.funilRows = deduplicateFunilRows(expandFunilRows(rawFunil,"mapa"));
-  try{ S.mapa.funil = buildFunilData(S.mapa.funilRows, S.fStartDate, S.fEndDate, "mapa"); }
-  catch(fe){ console.error("buildFunilData mapa error:",fe); S.mapa.funil={}; }
-
-  // "Atualizado em" — última venda Paga do produto principal de cada funil
-  function fmtUpdated(raw){
-    if(!raw) return "—";
-    const parts=raw.trim().split(" ");
-    const datePart=parts[0];
-    const timePart=parts[1]||"";
-    const dp=datePart.split("/");
-    const dateStr=dp.length===3?`${dp[0]}/${dp[1]}/${dp[2]}`:"";
-    return timePart ? `${dateStr} ${timePart.slice(0,5)}` : dateStr;
-  }
-  function rawToISO(raw){
-    if(!raw) return "";
-    const parts=raw.trim().split(" ");
-    const d=parts[0]; const t=parts[1]||"00:00:00";
-    const dp=d.split("/");
-    if(dp.length===3) return `${dp[2]}-${dp[1].padStart(2,"0")}-${dp[0].padStart(2,"0")}T${t}`;
-    return d+"T"+t;
-  }
-  // Manual: última venda (da base unificada)
-  let lastManualSale="", lastManualSaleISO="";
-  for(const r of rawFunil){
-    const nm=(r["Nome do produto principal"]||"").toUpperCase();
-    if(!nm.includes("MANUAL DEFINITIVO")) continue;
-    const st=normalizeStatus((r["Status da compra"]||"").trim());
-    if(st!=="Paga") continue;
-    const raw=(r["Data da compra"]||"").trim();
-    const iso=rawToISO(raw);
-    if(iso > lastManualSaleISO){ lastManualSaleISO=iso; lastManualSale=raw; }
-  }
-  S.updated=fmtUpdated(lastManualSale);
-  // Mapa: última venda
-  let lastMapaSale="", lastMapaSaleISO="";
-  for(const r of rawFunil){
-    const nm=(r["Nome do produto principal"]||"").toUpperCase();
-    const nOB1=(r["Nome do orderbump 01"]||"").toUpperCase();
-    const nOB2=(r["Nome do orderbump 02"]||"").toUpperCase();
-    if(!nm.includes("MAPA DA CASA")&&!nOB1.includes("MAPA DA CASA")&&!nOB2.includes("MAPA DA CASA")) continue;
-    const st=normalizeStatus((r["Status da compra"]||"").trim());
-    if(st!=="Paga") continue;
-    const raw=(r["Data da compra"]||"").trim();
-    const iso=rawToISO(raw);
-    if(iso > lastMapaSaleISO){ lastMapaSaleISO=iso; lastMapaSale=raw; }
-  }
-  S.mapa.updated=fmtUpdated(lastMapaSale);
-}
-
-async function loadData(force=false){
-  if(IS_FILE){ S.firstLoad=false;render();return; }
-
-  // Na carga inicial, tenta usar o cache — evita busca desnecessária à API
-  if(!force && S.firstLoad){
-    try{
-      const raw=localStorage.getItem(CACHE_KEY);
-      if(raw){
-        const {mj,vj,mmj}=JSON.parse(raw);
-        _processRaw(mj,vj,mmj);
-        S.firstLoad=false;
-        render();
-        return;
+    // ── Meta Mapa ────────────────────────────────────────────────────────────
+    {
+      const mD={}, mByAd={}, mByAdByDate={};
+      for(const r of parseSheet(mmj)){
+        const d=toISO(r["Date"]);if(!d)continue;
+        if(!mD[d])mD[d]={spend:0,clicks:0,impressions:0,landingViews:0,checkouts:0,purchases:0,viewContent:0};
+        mD[d].spend        += parseBRL(r["Spend (Cost, Amount Spent)"]);
+        mD[d].clicks       += parseInt(r["Action Link Clicks"]||0)||0;
+        mD[d].impressions  += parseInt(r["Impressions"]||0)||0;
+        mD[d].landingViews += parseInt(r["Action Landing Page View"]||0)||0;
+        mD[d].checkouts    += parseInt(r["Action FB Pixel Initiate Checkout (Offsite Conversion)"]||0)||0;
+        mD[d].viewContent  += parseInt(r["Action Omni View Content"]||0)||0;
+        const adId=r["Ad ID"]||r["Ad Id"]||"";
+        const adName=r["Ad Name"]||"";
+        const igUrl=r["Instagram Permalink URL"]||"";
+        const advCode=extractAdvCode(adName);
+        if(advCode){
+          if(!mByAd[advCode])mByAd[advCode]={advCode,adIds:new Set(),spend:0,clicks:0,impressions:0,igUrl:"",dates:new Set()};
+          if(adId) mByAd[advCode].adIds.add(adId);
+          mByAd[advCode].spend       += parseBRL(r["Spend (Cost, Amount Spent)"]);
+          mByAd[advCode].clicks      += parseInt(r["Action Link Clicks"]||0)||0;
+          mByAd[advCode].impressions += parseInt(r["Impressions"]||0)||0;
+          mByAd[advCode].dates.add(d);
+          if(igUrl && !mByAd[advCode].igUrl) mByAd[advCode].igUrl=igUrl;
+          if(!mByAdByDate[advCode]) mByAdByDate[advCode]={};
+          if(!mByAdByDate[advCode][d]) mByAdByDate[advCode][d]={spend:0,clicks:0,impressions:0,adIds:new Set(),igUrl:""};
+          mByAdByDate[advCode][d].spend       += parseBRL(r["Spend (Cost, Amount Spent)"]);
+          mByAdByDate[advCode][d].clicks      += parseInt(r["Action Link Clicks"]||0)||0;
+          mByAdByDate[advCode][d].impressions += parseInt(r["Impressions"]||0)||0;
+          if(adId) mByAdByDate[advCode][d].adIds.add(adId);
+          if(igUrl && !mByAdByDate[advCode][d].igUrl) mByAdByDate[advCode][d].igUrl=igUrl;
+        }
       }
-    }catch(e){ localStorage.removeItem(CACHE_KEY); }
-  }
+      S.mapa.meta=mD; S.mapa.metaByAd=mByAd; S.mapa.metaByAdByDate=mByAdByDate;
+    }
 
-  S.loading=true;S.error=null;
-  if(!S.firstLoad) render();
-  // Timeout de segurança: se demorar >90s libera a tela
-  const _t=setTimeout(()=>{
-    if(S.firstLoad){S.firstLoad=false;S.loading=false;
-      S.error="Tempo esgotado. Verifique a conexão e tente atualizar.";render();}
-  },90000);
-  try {
-    const [mr,vr,mmr]=await Promise.all([fetch(URL_META),fetch(URL_VENDAS),fetch(URL_META_MAPA)]);
-    if(!mr.ok)throw new Error(`HTTP ${mr.status} ao carregar Meta`);
-    if(!vr.ok)throw new Error(`HTTP ${vr.status} ao carregar Vendas`);
-    if(!mmr.ok)throw new Error(`HTTP ${mmr.status} ao carregar Meta Mapa`);
-    const [mj,vj,mmj]=await Promise.all([mr.json(),vr.json(),mmr.json()]);
-    // Salva no cache para próximas aberturas
-    try{ localStorage.setItem(CACHE_KEY,JSON.stringify({mj,vj,mmj})); }catch(e){ console.warn("Cache cheio:",e); }
-    _processRaw(mj,vj,mmj);
+    // ── Vendas Mapa ──────────────────────────────────────────────────────────
+    {
+      const vD={}, vByAd={}, vByAdDate={};
+      // Webhook
+      {
+        const ST_PRI={"Reembolsado":6,"Aguardando Reembolso":5,"Em Recuperacao":4,"Paga":3,"Expirado":2,"Aberta":1,"":0};
+        const whGrupos=new Map();
+        for(const r of parseSheet(vj)){
+          const nomePrincipal=(r["Nome do produto principal"]||"").toUpperCase();
+          const nomeOB1=(r["Nome do orderbump 01"]||"").toUpperCase();
+          const nomeOB2=(r["Nome do orderbump 02"]||"").toUpperCase();
+          const ehMapa=nomePrincipal.includes("MAPA DA CASA")||nomeOB1.includes("MAPA DA CASA")||nomeOB2.includes("MAPA DA CASA");
+          if(!ehMapa) continue;
+          const st=normalizeStatus((r["Status da compra"]||"").trim());
+          if(!st) continue;
+          const d=toISO(r["Data da compra"]);if(!d)continue;
+          const em=(r["Email"]||"").toLowerCase().trim();
+          const cpf=(r["CPF Comprador"]||"").replace(/[^\d]/g,"");
+          const tel=(r["Telefone"]||"").replace(/[^\d]/g,"");
+          const identity=em||cpf||tel;if(!identity)continue;
+          const key=identity+"|"+d;
+          const campos=[
+            {nome:nomePrincipal, val:r["Valor do produto principal"]||r["Valor do produto"]||"0", taxa:r["Taxa da plataforma"]||"0"},
+            {nome:nomeOB1,       val:r["Valor order bump 01"]||"0", taxa:"0"},
+            {nome:nomeOB2,       val:r["Valor order bump 02"]||"0", taxa:"0"},
+          ];
+          let valor=0, taxa=0;
+          for(const c of campos){
+            if(!c.nome) continue;
+            const pid=classifyProduct(c.nome,"mapa");
+            if(pid==="mapa"||pid==="guiaCaixa"||pid==="checklistMapa"){
+              valor+=parseBRL(c.val);
+              taxa+=parseBRLAbs(c.taxa);
+            }
+          }
+          if(!whGrupos.has(key)){
+            whGrupos.set(key,{st,d,valor,taxa,adId:extractAdId(r["Ad Id"]||"")});
+          } else {
+            const g=whGrupos.get(key);
+            if((ST_PRI[st]||0)>(ST_PRI[g.st]||0)) g.st=st;
+          }
+        }
+        for(const [,g] of whGrupos){
+          if(g.st!=="Paga") continue;
+          if(!vD[g.d])vD[g.d]={qtd:0,valor:0,taxa:0};
+          vD[g.d].qtd+=1; vD[g.d].valor+=g.valor; vD[g.d].taxa+=g.taxa;
+          if(g.adId){
+            if(!vByAd[g.adId])vByAd[g.adId]={qtd:0,valor:0,taxa:0};
+            vByAd[g.adId].qtd+=1; vByAd[g.adId].valor+=g.valor; vByAd[g.adId].taxa+=g.taxa;
+            if(!vByAdDate[g.adId]) vByAdDate[g.adId]={};
+            if(!vByAdDate[g.adId][g.d]) vByAdDate[g.adId][g.d]={qtd:0,valor:0,taxa:0};
+            vByAdDate[g.adId][g.d].qtd+=1; vByAdDate[g.adId][g.d].valor+=g.valor; vByAdDate[g.adId][g.d].taxa+=g.taxa;
+          }
+        }
+      }
+      // Histórica Mapa
+      {
+        const grupos=new Map();
+        for(const r of histRows){
+          const st=(r["Status da compra"]||"").trim();
+          if(st!=="Paga") continue;
+          const prodId=classifyProduct(r["Nome do produto"]||"","mapa");
+          if(!prodId) continue;
+          const d=toISO(r["Data da compra"]);if(!d)continue;
+          const em=(r["Email"]||"").toLowerCase().trim();
+          const cpf=(r["CPF Comprador"]||"").replace(/[^\d]/g,"");
+          const tel=(r["Telefone"]||"").replace(/[^\d]/g,"");
+          const identity=em||cpf||tel;if(!identity)continue;
+          const key=identity+"|"+d;
+          if(!grupos.has(key)) grupos.set(key,{d,mapa:false,valor:0,taxa:0,adId:null,rows:[]});
+          const g=grupos.get(key);
+          g.rows.push(r);
+          const OB_IDS_MAPA=new Set(["mapa","guiaCaixa","checklistMapa"]);
+          if(OB_IDS_MAPA.has(prodId)){
+            g.valor+=parseBRL(r["Valor do produto"]);
+            g.taxa+=parseBRLAbs(r["Taxa da plataforma"]);
+          }
+          if(prodId==="mapa"){
+            g.mapa=true;
+            if(!g.adId) g.adId=extractAdId(r["Ad Id"]||"");
+          }
+        }
+        for(const [,g] of grupos){
+          if(!g.mapa) continue;
+          const d=g.d;
+          if(!vD[d])vD[d]={qtd:0,valor:0,taxa:0};
+          vD[d].qtd+=1; vD[d].valor+=g.valor; vD[d].taxa+=g.taxa;
+          if(g.adId){
+            if(!vByAd[g.adId])vByAd[g.adId]={qtd:0,valor:0,taxa:0};
+            vByAd[g.adId].qtd+=1; vByAd[g.adId].valor+=g.valor; vByAd[g.adId].taxa+=g.taxa;
+            if(!vByAdDate[g.adId]) vByAdDate[g.adId]={};
+            if(!vByAdDate[g.adId][d]) vByAdDate[g.adId][d]={qtd:0,valor:0,taxa:0};
+            vByAdDate[g.adId][d].qtd+=1; vByAdDate[g.adId][d].valor+=g.valor; vByAdDate[g.adId][d].taxa+=g.taxa;
+          }
+        }
+      }
+      S.mapa.vendas=vD; S.mapa.vendasByAd=vByAd; S.mapa.vendasByAdDate=vByAdDate;
+    }
+
+    // ── Funil Manual — combina webhook (expandido) + histórica ───────────────
+    const rawFunil = parseSheet(fj);
+    const webhookFunilRows = expandFunilRows(rawFunil,"manual");
+    S.funilRows = deduplicateFunilRows([...webhookFunilRows, ...histRows.filter(r=>classifyProduct(r["Nome do produto"],"manual")!==null)]);
+    try{ S.funil = buildFunilData(S.funilRows, S.fStartDate, S.fEndDate); }
+    catch(fe){ console.error("buildFunilData error:",fe); S.funil={}; }
+
+    // ── Funil Mapa ──
+    S.mapa.funilRows = deduplicateFunilRows([...expandFunilRows(rawFunil,"mapa"), ...histRows.filter(r=>classifyProduct(r["Nome do produto"],"mapa")!==null)]);
+    try{ S.mapa.funil = buildFunilData(S.mapa.funilRows, S.fStartDate, S.fEndDate, "mapa"); }
+    catch(fe){ console.error("buildFunilData mapa error:",fe); S.mapa.funil={}; }
+
+    // "Atualizado em" — última venda Paga do produto principal de cada funil
+    function fmtUpdated(raw){
+      if(!raw) return "—";
+      const parts=raw.trim().split(" ");
+      const datePart=parts[0];
+      const timePart=parts[1]||"";
+      const dp=datePart.split("/");
+      const dateStr=dp.length===3?`${dp[0]}/${dp[1]}/${dp[2]}`:"";
+      return timePart ? `${dateStr} ${timePart.slice(0,5)}` : dateStr;
+    }
+    function rawToISO(raw){
+      if(!raw) return "";
+      const parts=raw.trim().split(" ");
+      const d=parts[0]; const t=parts[1]||"00:00:00";
+      const dp=d.split("/");
+      if(dp.length===3) return `${dp[2]}-${dp[1].padStart(2,"0")}-${dp[0].padStart(2,"0")}T${t}`;
+      return d+"T"+t;
+    }
+    // Manual: última venda
+    let lastManualSale="", lastManualSaleISO="";
+    for(const r of rawFunil){
+      const nm=(r["Nome do produto principal"]||"").toUpperCase();
+      if(!nm.includes("MANUAL DEFINITIVO")) continue;
+      const st=normalizeStatus((r["Status da compra"]||"").trim());
+      if(st!=="Paga") continue;
+      const raw=(r["Data da compra"]||"").trim();
+      const iso=rawToISO(raw);
+      if(iso > lastManualSaleISO){ lastManualSaleISO=iso; lastManualSale=raw; }
+    }
+    for(const r of histRows){
+      const nm=(r["Nome do produto"]||"").toUpperCase();
+      if(!nm.includes("MANUAL DEFINITIVO")) continue;
+      const st=(r["Status da compra"]||"").trim();
+      if(st!=="Paga") continue;
+      const raw=(r["Data da compra"]||"").trim();
+      const iso=rawToISO(raw);
+      if(iso > lastManualSaleISO){ lastManualSaleISO=iso; lastManualSale=raw; }
+    }
+    S.updated=fmtUpdated(lastManualSale);
+    // Mapa: última venda
+    let lastMapaSale="", lastMapaSaleISO="";
+    for(const r of rawFunil){
+      const nm=(r["Nome do produto principal"]||"").toUpperCase();
+      const nOB1=(r["Nome do orderbump 01"]||"").toUpperCase();
+      const nOB2=(r["Nome do orderbump 02"]||"").toUpperCase();
+      if(!nm.includes("MAPA DA CASA")&&!nOB1.includes("MAPA DA CASA")&&!nOB2.includes("MAPA DA CASA")) continue;
+      const st=normalizeStatus((r["Status da compra"]||"").trim());
+      if(st!=="Paga") continue;
+      const raw=(r["Data da compra"]||"").trim();
+      const iso=rawToISO(raw);
+      if(iso > lastMapaSaleISO){ lastMapaSaleISO=iso; lastMapaSale=raw; }
+    }
+    for(const r of histRows){
+      const nm=(r["Nome do produto"]||"").toUpperCase();
+      if(!nm.includes("MAPA DA CASA")) continue;
+      const st=(r["Status da compra"]||"").trim();
+      if(st!=="Paga") continue;
+      const raw=(r["Data da compra"]||"").trim();
+      const iso=rawToISO(raw);
+      if(iso > lastMapaSaleISO){ lastMapaSaleISO=iso; lastMapaSale=raw; }
+    }
+    S.mapa.updated=fmtUpdated(lastMapaSale);
+
     S.firstLoad=false;
-    clearTimeout(_t);
-  } catch(e){
-    clearTimeout(_t);
-    S.error="Erro ao carregar: "+e.message;
+  }catch(e){
+    S.error="Erro ao processar dados: "+e.message;
     S.firstLoad=false;
-    console.error("loadData error:",e);
+    console.error("processing error:",e);
   }
-  S.loading=false;
   render();
 }
 
