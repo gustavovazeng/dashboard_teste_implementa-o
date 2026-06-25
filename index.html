@@ -465,7 +465,7 @@ async function loadData(force=false){
     const vByAd={};
     const vByAdDate={};
     {
-      const ST_PRI={"Reembolsado":6,"Aguardando Reembolso":5,"Em Recuperacao":4,"Paga":3,"Expirado":2,"Aberta":1,"":0};
+      const ST_PRI={"Reembolsado":6,"Aguardando Reembolso":5,"Paga":4,"Em Recuperacao":3,"Expirado":2,"Aberta":1,"":0};
       const whGrupos=new Map();
       for(const r of parseSheet(vj)){
         const nomePrincipal=(r["Nome do produto principal"]||"").toUpperCase();
@@ -584,7 +584,7 @@ async function loadData(force=false){
       const vD={}, vByAd={}, vByAdDate={};
       // Webhook
       {
-        const ST_PRI={"Reembolsado":6,"Aguardando Reembolso":5,"Em Recuperacao":4,"Paga":3,"Expirado":2,"Aberta":1,"":0};
+        const ST_PRI={"Reembolsado":6,"Aguardando Reembolso":5,"Paga":4,"Em Recuperacao":3,"Expirado":2,"Aberta":1,"":0};
         const whGrupos=new Map();
         for(const r of parseSheet(vj)){
           const nomePrincipal=(r["Nome do produto principal"]||"").toUpperCase();
@@ -1568,9 +1568,9 @@ function expandFunilRows(rawRows, funil){
 
 // Deduplicação de eventos webhook:
 // Mesma pessoa + mesmo produto + dentro de 7 dias → mantém o mais recente por data/hora
-// Se data/hora igual → hierarquia: Reembolsado > Aguardando Reembolso > Em Recuperacao > Paga > Expirado > outros
+// Se data/hora igual → hierarquia: Reembolsado > Aguardando Reembolso > Paga > Em Recuperacao > Expirado > outros
 function deduplicateFunilRows(rows){
-  const STATUS_PRIORITY={"Reembolsado":6,"Aguardando Reembolso":5,"Em Recuperacao":4,"Paga":3,"Expirado":2,"Aberta":1,"":0};
+  const STATUS_PRIORITY={"Reembolsado":6,"Aguardando Reembolso":5,"Paga":4,"Em Recuperacao":3,"Expirado":2,"Aberta":1,"":0};
   function sp(st){ return STATUS_PRIORITY[st]||0; }
 
   // Chave: email+cpf+tel+produto+janela7dias
@@ -1720,7 +1720,7 @@ function buildFunilData(rows, start, end, funil){
   // Passo 1: agrupa por comprador+data para calcular faturamento do produto principal
   // (evita duplicatas entre webhook e histórica)
   {
-    const ST_PRI={"Reembolsado":6,"Aguardando Reembolso":5,"Em Recuperacao":4,"Paga":3,"Expirado":2,"Aberta":1,"":0};
+    const ST_PRI={"Reembolsado":6,"Aguardando Reembolso":5,"Paga":4,"Em Recuperacao":3,"Expirado":2,"Aberta":1,"":0};
     const grupos=new Map();
     for(const r of filtered){
       const prodId=classifyProduct(r["Nome do produto"],f);
