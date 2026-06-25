@@ -145,21 +145,32 @@ input[type=date]::-webkit-calendar-picker-indicator{opacity:.5;cursor:pointer}
         </div>
         <div class="mt-dot"></div>
       </a>
+      <a class="master-tab mt-inactive" onclick="switchFunil('geral')">
+        <div>
+          <div class="master-tab-name">Consolidado</div>
+          <div style="font-size:9px;color:#5a4838;margin-top:1px" id="mt-geral-sub">inativo</div>
+        </div>
+        <div class="mt-dot"></div>
+      </a>
     </div>
 
     <!-- Sub-nav do funil ativo -->
     <div class="subnav-lbl" id="subnav-lbl">Manual Definitivo</div>
-    <a class="nav-item active" onclick="navTo('principal')">Principal</a>
-    <a class="nav-item" onclick="navTo('trafego')">Métricas tráfego</a>
-    <a class="nav-item" onclick="navTo('funil')">Métricas do funil</a>
-    <a class="nav-item" onclick="navTo('anuncios')">Anúncios</a>
+    <a class="nav-item nav-funil active" onclick="navTo('principal')">Principal</a>
+    <a class="nav-item nav-funil" onclick="navTo('trafego')">Métricas tráfego</a>
+    <a class="nav-item nav-funil" onclick="navTo('funil')">Métricas do funil</a>
+    <a class="nav-item nav-funil" onclick="navTo('anuncios')">Anúncios</a>
+    <a class="nav-item nav-geral" style="display:none" onclick="navTo('geral-principal')">Principal</a>
+    <a class="nav-item nav-geral" style="display:none" onclick="navTo('geral-funil')">Métricas do funil</a>
   </nav>
   <div class="main">
     <div class="sw" id="loading"><div class="sp"></div><p class="st">Carregando dados...</p></div>
-    <div id="page-principal" class="page active"></div>
-    <div id="page-trafego"   class="page"></div>
-    <div id="page-anuncios"  class="page"></div>
-    <div id="page-funil"     class="page"></div>
+    <div id="page-principal"       class="page active"></div>
+    <div id="page-trafego"         class="page"></div>
+    <div id="page-anuncios"        class="page"></div>
+    <div id="page-funil"           class="page"></div>
+    <div id="page-geral-principal" class="page"></div>
+    <div id="page-geral-funil"     class="page"></div>
   </div>
 </div>
 
@@ -232,6 +243,11 @@ const S = {
     funilRows:[], funil:{},
     updated:null,
   },
+  // ── Dados Geral (Consolidado Manual+Mapa) ──
+  geral:{
+    meta:{}, vendas:{},
+    funilRows:[], funil:{},
+  },
   loading:false, error:null, firstLoad:true,
   // Principal
   startDate:nDaysAgoISO(29), endDate:todayISO(), activeQuick:"30d",
@@ -244,6 +260,10 @@ const S = {
   fStartDate:"",
   fEndDate:"",
   fActiveQuick:"all",
+  // Geral Principal
+  gStartDate:nDaysAgoISO(29), gEndDate:todayISO(), gActiveQuick:"30d",
+  // Geral Funil
+  gfStartDate:"", gfEndDate:"", gfActiveQuick:"all",
   aTab:"tempo",
   anaStartDate:"", anaEndDate:"", anaActiveQuick:"all",
   anaTempoProd1:"mapa", anaTempoProd2:"curso",
@@ -363,7 +383,7 @@ async function loadData(force=false){
   if(!force && S.firstLoad){
     try{
       const raw=localStorage.getItem(CACHE_KEY);
-      if(raw){ ({mj,vj,hj,mmj}=JSON.parse(raw)); usedCache=true; }
+      if(raw){ const c=JSON.parse(raw); if(c.mj&&c.vj&&c.hj&&c.mmj){({mj,vj,hj,mmj}=c);usedCache=true;}else{localStorage.removeItem(CACHE_KEY);} }
     }catch(e){ localStorage.removeItem(CACHE_KEY); }
   }
 
@@ -690,6 +710,32 @@ async function loadData(force=false){
     try{ S.mapa.funil = buildFunilData(S.mapa.funilRows, S.fStartDate, S.fEndDate, "mapa"); }
     catch(fe){ console.error("buildFunilData mapa error:",fe); S.mapa.funil={}; }
 
+    // ── Geral: consolida Manual + Mapa ──────────────────────────────────────
+    S.geral.funilRows = deduplicateFunilRows([
+      ...S.funilRows.map(r=>({...r,_gf:"manual"})),
+      ...S.mapa.funilRows.map(r=>({...r,_gf:"mapa"}))
+    ]);
+    // Combina meta por dia (soma Manual + Mapa)
+    const allMetaDts=new Set([...Object.keys(S.meta),...Object.keys(S.mapa.meta)]);
+    S.geral.meta={};
+    for(const dt of allMetaDts){
+      const m=S.meta[dt]||{spend:0,clicks:0,impressions:0,landingViews:0,checkouts:0};
+      const mm=S.mapa.meta[dt]||{spend:0,clicks:0,impressions:0,landingViews:0,checkouts:0};
+      S.geral.meta[dt]={spend:m.spend+mm.spend,clicks:m.clicks+mm.clicks,
+        impressions:m.impressions+mm.impressions,landingViews:m.landingViews+mm.landingViews,
+        checkouts:m.checkouts+mm.checkouts};
+    }
+    // Combina vendas por dia (Manual + Mapa não se sobrepõem — produto principal diferente)
+    const allVendasDts=new Set([...Object.keys(S.vendas),...Object.keys(S.mapa.vendas)]);
+    S.geral.vendas={};
+    for(const dt of allVendasDts){
+      const v=S.vendas[dt]||{qtd:0,valor:0,taxa:0};
+      const vm=S.mapa.vendas[dt]||{qtd:0,valor:0,taxa:0};
+      S.geral.vendas[dt]={qtd:v.qtd+vm.qtd,valor:v.valor+vm.valor,taxa:v.taxa+vm.taxa};
+    }
+    try{ S.geral.funil=buildGeralData(S.geral.funilRows,S.gfStartDate,S.gfEndDate); }
+    catch(fe){ console.error("buildGeralData error:",fe); S.geral.funil={}; }
+
     // "Atualizado em" — última venda Paga do produto principal de cada funil
     function fmtUpdated(raw){
       if(!raw) return "—";
@@ -784,6 +830,28 @@ function getTotals(daily){
     ticket:t.vendas>0?t.fat/t.vendas:0,lucro:t.fat-t.taxa-(t.spend*TAXA_IMPOSTO)};
 }
 
+// ── Derived — Geral ────────────────────────────────────────────────────────
+function getGeralDaily(start,end){
+  const g=S.geral;
+  const all=new Set([...Object.keys(g.meta),...Object.keys(g.vendas)]);
+  return Array.from(all).sort().filter(dt=>dt>=start&&dt<=end).map(date=>{
+    const m=g.meta[date]||{spend:0};
+    const v=g.vendas[date]||{qtd:0,valor:0,taxa:0};
+    const lucro=v.valor-v.taxa-(m.spend*TAXA_IMPOSTO);
+    return{date,label:fDate(date),spend:m.spend,faturamento:v.valor,vendas:v.qtd,
+      roas:m.spend>0?v.valor/m.spend:0,cpv:v.qtd>0?m.spend/v.qtd:0,
+      ticket:v.qtd>0?v.valor/v.qtd:0,lucro};
+  });
+}
+function getTotalsGeral(daily){
+  const g=S.geral;
+  const t=daily.reduce((a,dt)=>({spend:a.spend+dt.spend,fat:a.fat+dt.faturamento,vendas:a.vendas+dt.vendas,
+    taxa:a.taxa+(g.vendas[dt.date]?.taxa||0)}),{spend:0,fat:0,vendas:0,taxa:0});
+  return{...t,faturamento:t.fat,
+    roas:t.spend>0?t.fat/t.spend:0,cpv:t.vendas>0?t.spend/t.vendas:0,
+    ticket:t.vendas>0?t.fat/t.vendas:0,lucro:t.fat-t.taxa-(t.spend*TAXA_IMPOSTO)};
+}
+
 // ── Derived — Tráfego ──────────────────────────────────────────────────────
 function getDailyT(start,end){
   const d=D();
@@ -838,9 +906,10 @@ function getDayMetrics(iso){
 // ── Navigation ─────────────────────────────────────────────────────────────
 function switchFunil(id){
   S.currentFunil=id;
+  const isGeral=id==='geral';
   // Atualiza visual das tabs
   document.querySelectorAll('.master-tab').forEach((t,i)=>{
-    const isActive=(i===0&&id==='manual')||(i===1&&id==='mapa');
+    const isActive=(i===0&&id==='manual')||(i===1&&id==='mapa')||(i===2&&id==='geral');
     t.classList.toggle('mt-active', isActive);
     t.classList.toggle('mt-inactive', !isActive);
     t.style.pointerEvents='';
@@ -853,10 +922,21 @@ function switchFunil(id){
     const name=t.querySelector('.master-tab-name');
     if(name) name.style.color=isActive?'#e8621a':'#5a4838';
   });
-  document.getElementById('subnav-lbl').textContent=id==='mapa'?'Mapa da Casa':'Manual Definitivo';
+  // Mostra/oculta nav por grupo
+  document.querySelectorAll('.nav-funil').forEach(el=>el.style.display=isGeral?'none':'');
+  document.querySelectorAll('.nav-geral').forEach(el=>el.style.display=isGeral?'':'none');
+  // Label do sub-nav
+  const lbl=id==='mapa'?'Mapa da Casa':id==='geral'?'Consolidado':'Manual Definitivo';
+  document.getElementById('subnav-lbl').textContent=lbl;
   S.anaTempoProd1=id==='mapa'?'mapa':'manual';
   S.anaTempoProd2='curso';
-  navTo(S.currentPage);
+  // Navega para a página padrão do funil
+  if(isGeral){
+    navTo('geral-principal');
+  } else {
+    const pg=(S.currentPage==='geral-principal'||S.currentPage==='geral-funil')?'principal':S.currentPage;
+    navTo(pg);
+  }
 }
 
 function navTo(page){
@@ -879,12 +959,14 @@ function applyQuick(k,prefix=""){
   if(!prefix){S.startDate=r.s;S.endDate=r.e;S.activeQuick=k;}
   else if(prefix==="t"){S.tStartDate=r.s;S.tEndDate=r.e;S.tActiveQuick=k;}
   else if(prefix==="a"){S.aStartDate=r.s;S.aEndDate=r.e;S.aActiveQuick=k;}
+  else if(prefix==="g"){S.gStartDate=r.s;S.gEndDate=r.e;S.gActiveQuick=k;}
   render();
 }
 function onDC(w,v,prefix=""){
   if(!prefix){if(w==="s")S.startDate=v;else S.endDate=v;S.activeQuick="";}
   else if(prefix==="t"){if(w==="s")S.tStartDate=v;else S.tEndDate=v;S.tActiveQuick="";}
   else if(prefix==="a"){if(w==="s")S.aStartDate=v;else S.aEndDate=v;S.aActiveQuick="";}
+  else if(prefix==="g"){if(w==="s")S.gStartDate=v;else S.gEndDate=v;S.gActiveQuick="";}
   render();
 }
 function sortAnuncios(col){
@@ -1821,6 +1903,113 @@ function buildFunilData(rows, start, end, funil){
   };
 }
 
+// ── buildGeralData — Funil Consolidado (Manual + Mapa) ────────────────────
+function buildGeralData(rows, start, end){
+  // Mapa de compradores: chave → {keys, firstManual, firstMapa, products}
+  const buyersMap=new Map();
+
+  function getOrCreateG(em,cpf,tel){
+    const ids=[];
+    if(em)  ids.push("e:"+em);
+    if(cpf) ids.push("c:"+cpf);
+    if(tel) ids.push("t:"+tel);
+    if(!ids.length) return null;
+    let found=null;
+    for(const id of ids){ if(buyersMap.has(id)){found=buyersMap.get(id);break;} }
+    if(!found){
+      found={keys:new Set(ids),firstManual:null,firstMapa:null,products:[]};
+      for(const id of ids) buyersMap.set(id,found);
+    } else {
+      for(const id of ids){ buyersMap.set(id,found); found.keys.add(id); }
+    }
+    return found;
+  }
+
+  // Passo 1: percorre TODAS as linhas (sem filtro de período)
+  // → garante que firstManual/firstMapa reflitam histórico completo
+  for(const r of rows){
+    const em=(r["Email"]||"").toLowerCase().trim();
+    const cpf=(r["CPF Comprador"]||"").replace(/[^\d]/g,"");
+    const tel=(r["Telefone"]||"").replace(/[^\d]/g,"");
+    if(!em&&!cpf&&!tel) continue;
+    const st=(r["Status da compra"]||"").trim();
+    if(st!=="Paga") continue;
+    const name=(r["Nome do produto"]||"").toUpperCase();
+    const gf=r._gf;
+    let prodId=gf?classifyProduct(name,gf):null;
+    if(!prodId) prodId=classifyProduct(name,"manual")||classifyProduct(name,"mapa");
+    if(!prodId) continue;
+    const b=getOrCreateG(em,cpf,tel); if(!b) continue;
+    const dt=toISO(r["Data da compra"]||"")||"";
+    if(prodId==="manual" && (!b.firstManual||dt<b.firstManual)) b.firstManual=dt;
+    if(prodId==="mapa"   && (!b.firstMapa ||dt<b.firstMapa  )) b.firstMapa=dt;
+    b.products.push({id:prodId,date:dt,status:st,val:parseBRL(r["Valor do produto"]||"0")});
+  }
+
+  // Passo 2: conta por produto no período
+  const counts={manual:0,mapa:0,checklist:0,checklistMapa:0,planFin:0,guiaCaixa:0,planLucro:0,curso:0};
+  const fat   ={manual:0,mapa:0,checklist:0,checklistMapa:0,planFin:0,guiaCaixa:0,planLucro:0,curso:0};
+  const statusCounts={}, statusVals={};
+  let totalFat=0, totalTaxa=0;
+  const buyerCountedForProd=new Map(); // bKey → Set(prodId) — evita contar o mesmo comprador 2x por produto
+  const entryBuyerKeys=new Set();
+  const ascensaoKeys=new Set();
+
+  for(const r of rows){
+    const dt=toISO(r["Data da compra"]||"")||"";
+    if(start&&dt<start) continue;
+    if(end  &&dt>end  ) continue;
+
+    const st=(r["Status da compra"]||"").trim();
+    statusCounts[st]=(statusCounts[st]||0)+1;
+    const val=parseBRL(r["Valor do produto"]||"0");
+    statusVals[st]=(statusVals[st]||0)+val;
+
+    if(st!=="Paga") continue;
+
+    const em=(r["Email"]||"").toLowerCase().trim();
+    const cpf=(r["CPF Comprador"]||"").replace(/[^\d]/g,"");
+    const tel=(r["Telefone"]||"").replace(/[^\d]/g,"");
+    if(!em&&!cpf&&!tel) continue;
+    const b=getOrCreateG(em,cpf,tel); if(!b) continue;
+    const bKey=[...b.keys][0];
+
+    const name=(r["Nome do produto"]||"").toUpperCase();
+    const gf=r._gf;
+    let prodId=gf?classifyProduct(name,gf):null;
+    if(!prodId) prodId=classifyProduct(name,"manual")||classifyProduct(name,"mapa");
+    if(!prodId) continue;
+
+    const taxa=parseBRL(r["Taxa da plataforma"]||"0");
+    totalFat+=val;
+    totalTaxa+=taxa;
+
+    // Conta cada comprador uma vez por produto (dedup comprador-nível)
+    if(!buyerCountedForProd.has(bKey)) buyerCountedForProd.set(bKey,new Set());
+    if(!buyerCountedForProd.get(bKey).has(prodId)){
+      buyerCountedForProd.get(bKey).add(prodId);
+      counts[prodId]=(counts[prodId]||0)+1;
+      fat[prodId]=(fat[prodId]||0)+val;
+    }
+
+    if(prodId==="manual"||prodId==="mapa") entryBuyerKeys.add(bKey);
+
+    if(prodId==="planLucro"||prodId==="curso"){
+      const fe=b.firstManual&&b.firstMapa
+        ?(b.firstManual<b.firstMapa?b.firstManual:b.firstMapa)
+        :(b.firstManual||b.firstMapa);
+      if(fe&&dt>=fe) ascensaoKeys.add(bKey);
+    }
+  }
+
+  const entryCount=entryBuyerKeys.size;
+  const ltv=entryCount>0?totalFat/entryCount:0;
+  const taxaAscensao=entryCount>0?(ascensaoKeys.size/entryCount)*100:0;
+
+  return {counts,fat,entryCount,totalFat,totalTaxa,ltv,taxaAscensao,
+          ascensaoCount:ascensaoKeys.size,statusCounts,statusVals,buyers:buyersMap};
+}
+
 // ── Funil barras helper ────────────────────────────────────────────────────
 function funilBarras(counts,fat,pct){
   const CORES={
@@ -2280,6 +2469,237 @@ function buildAnaContent(fd, buyers){
     ${tabContent[S.aTab]||""}`;
 }
 
+// ── Render Geral Principal ─────────────────────────────────────────────────
+function renderGeralPrincipal(){
+  const el=document.getElementById("page-geral-principal");if(!el)return;
+  const daily=getGeralDaily(S.gStartDate,S.gEndDate);
+  const tot=getTotalsGeral(daily);
+  const roasC=statusColor(tot.roas,META_ROAS,true);
+  const lucroC=tot.lucro>=0?"#1a7a4a":"#b91c1c";
+
+  el.innerHTML=`
+    <div class="hdr">
+      <div>
+        <div class="hdr-title">Consolidado — Manual + Mapa da Casa</div>
+        <div class="hdr-sub">${daily.length>0?`${daily.length} dias`:""}${tot.vendas>0?` · ${tot.vendas} vendas`:""}</div>
+      </div>
+      <button class="btn-refresh" onclick="loadData(true)" ${S.loading?"disabled":""}>${S.loading?"Carregando...":"↻ Atualizar"}</button>
+    </div>
+    ${S.error?`<div class="err">⚠️ ${S.error}</div>`:""}
+    ${periodBar(S.gStartDate,S.gEndDate,S.gActiveQuick,"g")}
+    <div class="g3" style="margin-bottom:12px">
+      ${kpiCard("Investimento",fBRL(tot.spend),`${tot.vendas} vendas · ${daily.length} dias`,"#1c1410")}
+      ${kpiCard("ROAS",tot.roas.toFixed(2)+"x",`Meta: ${META_ROAS.toFixed(2)}x`,roasC)}
+      ${kpiCard("Faturamento",fBRL(tot.faturamento),"","#1c1410")}
+    </div>
+    <div class="g3" style="margin-bottom:18px">
+      ${kpiCard("Custo por Venda",fBRL(tot.cpv),"","#1c1410")}
+      ${kpiCard("Ticket Médio",fBRL(tot.ticket),"","#1c1410")}
+      ${kpiCard("Lucro Bruto",fBRL(tot.lucro),"",lucroC)}
+    </div>
+    <div class="charts-2x2">
+      <div class="cc" style="position:relative">
+        <div class="ch"><span class="ct">ROAS diário</span></div>
+        <div style="position:relative"><canvas id="cg-roas"></canvas><div class="tip" id="tg-roas"></div></div>
+      </div>
+      <div class="cc" style="position:relative">
+        <div class="ch"><span class="ct">Faturamento</span></div>
+        <div style="position:relative"><canvas id="cg-fat"></canvas><div class="tip" id="tg-fat"></div></div>
+      </div>
+      <div class="cc" style="position:relative">
+        <div class="ch"><span class="ct">Ticket Médio</span></div>
+        <div style="position:relative"><canvas id="cg-tick"></canvas><div class="tip" id="tg-tick"></div></div>
+      </div>
+      <div class="cc" style="position:relative">
+        <div class="ch"><span class="ct">Lucro Bruto</span></div>
+        <div style="position:relative"><canvas id="cg-lucro"></canvas><div class="tip" id="tg-lucro"></div></div>
+      </div>
+    </div>
+    <p class="foot">Manual Definitivo + Mapa da Casa · Base Meta (Stract) + Base Vendas (Eduzz)</p>`;
+
+  requestAnimationFrame(()=>{
+    const sW=document.getElementById("cg-roas")?.parentElement?.offsetWidth||340;
+    drawChartWithOverlay("cg-roas", daily,"roas",  v=>v.toFixed(2)+"x",META_ROAS,"Meta 1.8x",false,false,sW,170);
+    drawChartWithOverlay("cg-fat",  daily,"faturamento",fBRLShort,null,null,false,false,sW,170);
+    drawChartWithOverlay("cg-tick", daily,"ticket",fBRLShort,null,null,false,false,sW,170);
+    drawChartWithOverlay("cg-lucro",daily,"lucro",fBRLShort,null,null,false,false,sW,170);
+    setupTip("cg-roas","tg-roas",daily,[{name:"ROAS",key:"roas",color:CHART_COLOR,fmt:v=>v.toFixed(2)+"x"}]);
+    setupTip("cg-fat","tg-fat",daily,[{name:"Faturamento",key:"faturamento",color:CHART_COLOR,fmt:fBRL}]);
+    setupTip("cg-tick","tg-tick",daily,[{name:"Ticket Médio",key:"ticket",color:CHART_COLOR,fmt:fBRL}]);
+    setupTip("cg-lucro","tg-lucro",daily,[{name:"Lucro Bruto",key:"lucro",color:CHART_COLOR,fmt:fBRL}]);
+  });
+}
+
+// ── Render Geral Funil ─────────────────────────────────────────────────────
+function renderGeralFunil(){
+  const el=document.getElementById("page-geral-funil");if(!el)return;
+
+  // Recalcula com filtro de período do funil geral
+  const fd=buildGeralData(S.geral.funilRows, S.gfStartDate||"", S.gfEndDate||"");
+  const {counts,fat,entryCount,totalFat,totalTaxa,ltv,taxaAscensao,ascensaoCount,statusCounts,statusVals}=fd;
+
+  // Investimento e lucro no período do funil
+  const gfStart=S.gfStartDate||"";
+  const gfEnd=S.gfEndDate||"";
+  let totalSpend=0;
+  for(const [dt,m] of Object.entries(S.geral.meta)){
+    if(gfStart&&dt<gfStart) continue;
+    if(gfEnd  &&dt>gfEnd  ) continue;
+    totalSpend+=m.spend||0;
+  }
+  const roas=totalSpend>0?totalFat/totalSpend:0;
+  const lucro=totalFat-totalTaxa-(totalSpend*TAXA_IMPOSTO);
+  const roasC=statusColor(roas,META_ROAS,true);
+  const lucroC=lucro>=0?"#1a7a4a":"#b91c1c";
+
+  const QS=[{k:"all",l:"Todos"},{k:"hoje",l:"Hoje"},{k:"ontem",l:"Ontem"},{k:"7d",l:"7 dias"},{k:"30d",l:"30 dias"},{k:"mes",l:"Este mês"}];
+
+  function applyGeralFunilQuick(k){
+    S.gfActiveQuick=k;
+    const t=todayISO();
+    if(k==="all")     {S.gfStartDate="";S.gfEndDate="";}
+    else if(k==="hoje") {S.gfStartDate=t;S.gfEndDate=t;}
+    else if(k==="ontem"){const y=yesterdayISO();S.gfStartDate=y;S.gfEndDate=y;}
+    else if(k==="7d")   {S.gfStartDate=nDaysAgoISO(6);S.gfEndDate=t;}
+    else if(k==="30d")  {S.gfStartDate=nDaysAgoISO(29);S.gfEndDate=t;}
+    else if(k==="mes")  {S.gfStartDate=firstOfMonthISO();S.gfEndDate=t;}
+    renderGeralFunil();
+  }
+  window.applyGeralFunilQuick=applyGeralFunilQuick;
+
+  function onGeralFunilDC(w,v){
+    if(w==="s")S.gfStartDate=v;else S.gfEndDate=v;
+    S.gfActiveQuick="";renderGeralFunil();
+  }
+  window.onGeralFunilDC=onGeralFunilDC;
+
+  // Barras do funil geral (8 passos)
+  const GERAL_STEPS=[
+    {id:"manual",        label:"Manual Definitivo",      step:"Produto de entrada"},
+    {id:"mapa",          label:"Mapa da Casa",           step:"Produto de entrada"},
+    {id:"checklist",     label:"Checklist",              step:"Order Bump (Manual)"},
+    {id:"planFin",       label:"Planilha Financiamento", step:"Order Bump (Manual)"},
+    {id:"guiaCaixa",     label:"Guia Definitivo Caixa",  step:"Order Bump (Mapa)"},
+    {id:"checklistMapa", label:"Checklist Documentos",   step:"Order Bump (Mapa)"},
+    {id:"planLucro",     label:"Planilha Lucro",          step:"Upsell"},
+    {id:"curso",         label:"Curso Completo",          step:"Ascensão"},
+  ];
+  const GERAL_CORES={manual:"#185FA5",mapa:"#1F7A8C",checklist:"#3B6D11",planFin:"#0F6E56",
+    guiaCaixa:"#0F6E56",checklistMapa:"#3B6D11",planLucro:"#854F0B",curso:"#993C1D"};
+
+  function pctG(id){
+    return entryCount>0?((counts[id]||0)/entryCount)*100:0;
+  }
+
+  const funilBarsHtml=GERAL_STEPS.map(s=>{
+    const p=pctG(s.id);
+    const barW=Math.max(p,0.5);
+    const col=GERAL_CORES[s.id]||"#555";
+    const innerLabel=barW>8?`<span style="font-size:11px;font-weight:500;color:#fff;white-space:nowrap">${p.toFixed(1)}%</span>`:'';
+    const outerLabel=barW<=8?`<span style="position:absolute;left:8px;top:50%;transform:translateY(-50%);font-size:10px;font-weight:600;color:${col}">${p.toFixed(1)}%</span>`:'';
+    return `<div style="display:flex;align-items:center;gap:12px">
+      <div style="width:175px;flex-shrink:0">
+        <div style="font-size:11px;font-weight:600;color:var(--text)">${s.label}</div>
+        <div style="font-size:9px;color:var(--hint);margin-top:1px">${s.step}</div>
+      </div>
+      <div style="flex:1;height:30px;background:var(--bg);border-radius:5px;overflow:hidden;position:relative;border:0.5px solid var(--border)">
+        <div style="height:100%;width:${barW}%;background:${col};border-radius:5px;display:flex;align-items:center;padding-left:8px;min-width:2px">${innerLabel}</div>
+        ${outerLabel}
+      </div>
+      <div style="width:90px;flex-shrink:0;text-align:right">
+        <div style="font-size:13px;font-weight:500;color:var(--text)">${(counts[s.id]||0).toLocaleString("pt-BR")}</div>
+        <div style="font-size:10px;color:var(--hint)">${fBRLShort(fat[s.id]||0)}</div>
+      </div>
+    </div>`;
+  }).join("");
+
+  // Perdas
+  const qtdReemb=(statusCounts["Reembolsado"]||0)+(statusCounts["Aguardando Reembolso"]||0);
+  const valReemb=(statusVals["Reembolsado"]||0)+(statusVals["Aguardando Reembolso"]||0);
+  const qtdRec  =statusCounts["Em Recuperacao"]||0;
+  const valRec  =statusVals["Em Recuperacao"]||0;
+  const qtdAbrt =(statusCounts["Aberta"]||0)+(statusCounts["Aguardando Pagamento"]||0);
+  const valAbrt =(statusVals["Aberta"]||0)+(statusVals["Aguardando Pagamento"]||0);
+  const pctReemb=totalFat>0?(valReemb/totalFat)*100:0;
+  const pctRec  =totalFat>0?(valRec/totalFat)*100:0;
+  const pctAbrt =totalFat>0?(valAbrt/totalFat)*100:0;
+
+  el.innerHTML=`
+    <div class="hdr">
+      <div>
+        <div class="hdr-title">Métricas do funil — Consolidado</div>
+        <div class="hdr-sub">base: ${entryCount} compradores únicos (Manual + Mapa)</div>
+      </div>
+      <button class="btn-refresh" onclick="loadData(true)" ${S.loading?"disabled":""}>${S.loading?"Carregando...":"↻ Atualizar"}</button>
+    </div>
+    ${S.error?`<div class="err">⚠️ ${S.error}</div>`:""}
+
+    <div class="period-wrap">
+      <div class="period-top">
+        <span class="period-lbl">Período</span>
+        <div class="drbox">
+          <span class="drbox-icon">📅</span>
+          <input type="date" value="${S.gfStartDate}" onchange="onGeralFunilDC('s',this.value)"/>
+          <span class="drbox-sep">—</span>
+          <input type="date" value="${S.gfEndDate}" onchange="onGeralFunilDC('e',this.value)"/>
+        </div>
+      </div>
+      <div class="period-quick">
+        ${QS.map(q=>`<button class="btn-q${(S.gfActiveQuick||"all")===q.k?" on":""}" onclick="applyGeralFunilQuick('${q.k}')">${q.l}</button>`).join("")}
+      </div>
+    </div>
+
+    <!-- KPIs -->
+    <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:20px">
+      <div class="kc"><div class="kc-lbl">Investimento</div><div class="kc-val" style="color:#1c1410;font-size:17px">${fBRL(totalSpend)}</div><div class="kc-sub">Meta Ads</div></div>
+      <div class="kc"><div class="kc-lbl">Faturamento total</div><div class="kc-val" style="color:#1c1410;font-size:17px">${fBRL(totalFat)}</div><div class="kc-sub">todos os produtos</div></div>
+      <div class="kc"><div class="kc-lbl">ROAS funil</div><div class="kc-val" style="color:${roasC};font-size:17px">${roas.toFixed(2)}x</div></div>
+      <div class="kc"><div class="kc-lbl">Lucro bruto</div><div class="kc-val" style="color:${lucroC};font-size:17px">${fBRL(lucro)}</div></div>
+      <div class="kc"><div class="kc-lbl">LTV médio</div><div class="kc-val" style="color:#1c1410;font-size:17px">${fBRL(ltv)}</div><div class="kc-sub">por comprador único</div></div>
+      <div class="kc"><div class="kc-lbl">Taxa de ascensão</div><div class="kc-val" style="color:#1c1410;font-size:17px">${taxaAscensao.toFixed(1)}%</div><div class="kc-sub">${ascensaoCount} compradores</div></div>
+    </div>
+
+    <!-- Funil + Perdas -->
+    <div style="display:grid;grid-template-columns:1fr 300px;gap:14px;margin-bottom:20px;align-items:start">
+      <div class="cc" style="padding:16px">
+        <div class="section-lbl" style="margin-top:0;margin-bottom:16px">Funil de conversão consolidado</div>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          ${funilBarsHtml}
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div class="section-lbl" style="margin-top:0;margin-bottom:2px">Análise de perdas</div>
+        <div class="kc" style="border-left:3px solid #b91c1c">
+          <div class="kc-lbl" style="color:#b91c1c">Reembolsos</div>
+          <div class="kc-val" style="color:#b91c1c;font-size:19px">${fBRL(valReemb)}</div>
+          <div class="kc-sub">${qtdReemb} pedidos · ${pctReemb.toFixed(1)}% do fat.</div>
+          <div style="margin-top:8px;display:flex;gap:6px">
+            <div style="flex:1;background:#f3f1ed;border-radius:5px;padding:5px 7px">
+              <div style="font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:1px">Reembolsado</div>
+              <div style="font-size:13px;font-weight:500;color:#b91c1c">${statusCounts["Reembolsado"]||0}</div>
+            </div>
+            <div style="flex:1;background:#f3f1ed;border-radius:5px;padding:5px 7px">
+              <div style="font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:1px">Ag. reembolso</div>
+              <div style="font-size:13px;font-weight:500;color:#c07800">${statusCounts["Aguardando Reembolso"]||0}</div>
+            </div>
+          </div>
+        </div>
+        <div class="kc" style="border-left:3px solid #c07800">
+          <div class="kc-lbl" style="color:#c07800">Em recuperação</div>
+          <div class="kc-val" style="color:#c07800;font-size:19px">${fBRL(valRec)}</div>
+          <div class="kc-sub">${qtdRec} pedidos · ${pctRec.toFixed(1)}% do fat.</div>
+        </div>
+        <div class="kc" style="border-left:3px solid #a0917e">
+          <div class="kc-lbl">Faturas em aberto</div>
+          <div class="kc-val" style="color:#1c1410;font-size:19px">${fBRL(valAbrt)}</div>
+          <div class="kc-sub">${qtdAbrt} pedidos · ${pctAbrt.toFixed(1)}% do fat.</div>
+        </div>
+      </div>
+    </div>
+    <p class="foot">Manual Definitivo + Mapa da Casa · Base Vendas (Eduzz) + Base Meta (Stract)</p>`;
+}
+
 // ── Render ─────────────────────────────────────────────────────────────────
 function render(){
   const ld=document.getElementById("loading");
@@ -2300,6 +2720,8 @@ function render(){
   else if(S.currentPage==="trafego") renderTrafego();
   else if(S.currentPage==="anuncios") renderAnuncios();
   else if(S.currentPage==="funil") renderFunil();
+  else if(S.currentPage==="geral-principal") renderGeralPrincipal();
+  else if(S.currentPage==="geral-funil") renderGeralFunil();
 }
 
 render();
