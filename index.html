@@ -629,7 +629,7 @@ async function loadData(force=false){
           for(const c of campos){
             if(!c.nome) continue;
             const pid=classifyProduct(c.nome,"mapa");
-            if(pid==="mapa"||pid==="guiaCaixa"||pid==="checklistMapa"){
+            if(pid==="mapa"||pid==="guiaCaixa"||pid==="checklist"){
               valor+=parseBRL(c.val);
               taxa+=parseBRLAbs(c.taxa);
             }
@@ -671,7 +671,7 @@ async function loadData(force=false){
           if(!grupos.has(key)) grupos.set(key,{d,mapa:false,valor:0,taxa:0,adId:null,rows:[]});
           const g=grupos.get(key);
           g.rows.push(r);
-          const OB_IDS_MAPA=new Set(["mapa","guiaCaixa","checklistMapa"]);
+          const OB_IDS_MAPA=new Set(["mapa","guiaCaixa","checklist"]);
           if(OB_IDS_MAPA.has(prodId)){
             g.valor+=parseBRL(r["Valor do produto"]);
             g.taxa+=parseBRLAbs(r["Taxa da plataforma"]);
@@ -1530,27 +1530,32 @@ function classifyProduct(name, funil){
   const n=name.toUpperCase();
   const f=funil||S.currentFunil;
 
+  // Gratuitos → sempre ignorar
+  if(n.includes("GRÁTIS") || n.includes("GRATIS")) return null;
+
+  // OBs/produtos relacionados ao PlanLucro — verificar ANTES dos filtros genéricos
+  if(n.includes("10 ERROS")) return "planLucro";
+  if(n.includes("REDUZIR")) return "planLucro";
+  if(n.includes("REPROVADO")) return "planLucro";
+  if(n.includes("CUSTO POR M2")) return "planLucro";
+  if(n.includes("APROVAÇÃO DO PROJETO") || n.includes("APROVACAO DO PROJETO")) return "planLucro";
+
   if(f==="mapa"){
-    // Produtos ignorados para o funil Mapa
-    const IGNORAR_MAPA=["MANUAL DEFINITIVO","RAIO-X","RAIOX","REDUZIR","IMPOSTO",
-      "APROVAÇÃO DO PROJETO","APROVACAO DO PROJETO","10 ERROS","GRÁTIS","GRATIS",
-      "CUSTO POR M2","REPROVADO","PILARES","DESCUBRA O CUSTO","QUAL O LUCRO",
+    const IGNORAR_MAPA=["MANUAL DEFINITIVO","RAIO-X","RAIOX","IMPOSTO",
+      "PILARES","DESCUBRA O CUSTO","QUAL O LUCRO",
       "OS 8 PILARES","MÉTODO ALAVANCA","METODO ALAVANCA","EBOOK - DESCUBRA"];
     if(IGNORAR_MAPA.some(x=>n.includes(x))) return null;
     if(n.includes("MAPA DA CASA")) return "mapa";
-    // OB1: Guia Definitivo com Passo a Passo (Financiamento Caixa)
     if(n.includes("GUIA DEFINITIVO") || (n.includes("CAIXA") && n.includes("PASSO"))) return "guiaCaixa";
-    // OB2: Checklist documentos (mas NÃO é o produto principal — é OB)
-    if(n.includes("CHECKLIST")) return "checklistMapa";
+    if(n.includes("CHECKLIST")) return "checklist";
     if(n.includes("LUCRO")) return "planLucro";
     if(n.includes("CURSO COMPLETO") || n.includes("PASSO A PASSO")) return "curso";
     return null;
   }
 
-  // funil manual (comportamento original)
-  const IGNORAR=["MAPA DA CASA","RAIO-X","RAIOX","GUIA DEFINITIVO","REDUZIR","IMPOSTO",
-    "APROVAÇÃO DO PROJETO","APROVACAO DO PROJETO","10 ERROS","GRÁTIS","GRATIS",
-    "CUSTO POR M2","REPROVADO","PILARES","ZERO ENTRADA","CASA PRÓPRIA","CASA PROPRIA",
+  // funil manual
+  const IGNORAR=["MAPA DA CASA","RAIO-X","RAIOX","GUIA DEFINITIVO","IMPOSTO",
+    "PILARES","ZERO ENTRADA","CASA PRÓPRIA","CASA PROPRIA",
     "DESCUBRA O CUSTO","DOIS CHECKLISTS","QUAL O LUCRO","OS 8 PILARES",
     "MÉTODO ALAVANCA","METODO ALAVANCA","EBOOK - DESCUBRA"];
   if(IGNORAR.some(x=>n.includes(x))) return null;
@@ -1567,7 +1572,7 @@ function getFunilSteps(funil){
   if(f==="mapa") return [
     {id:"mapa",         label:"Mapa da Casa",          step:"Entrada"},
     {id:"guiaCaixa",    label:"Guia Definitivo Caixa", step:"Order Bump 1"},
-    {id:"checklistMapa",label:"Checklist Documentos",  step:"Order Bump 2"},
+    {id:"checklist",    label:"Checklist",             step:"Order Bump 2"},
     {id:"planLucro",    label:"Planilha Lucro",         step:"Upsell"},
     {id:"curso",        label:"Curso",                  step:"Ascensão"},
   ];
@@ -1796,7 +1801,7 @@ function buildFunilData(rows, start, end, funil){
   // Funil: só Paga, dentro do período
   // OBs de faturamento (produto principal + OBs diretos)
   const OB_FAT_IDS = f==="mapa"
-    ? new Set(["mapa","guiaCaixa","checklistMapa"])
+    ? new Set(["mapa","guiaCaixa","checklist"])
     : new Set(["manual","checklist","planFin"]);
 
   // Passo 1: agrupa por comprador+data para calcular faturamento do produto principal
@@ -1947,8 +1952,8 @@ function buildGeralData(rows, start, end){
   }
 
   // Passo 2: conta por produto no período
-  const counts={manual:0,mapa:0,checklist:0,checklistMapa:0,planFin:0,guiaCaixa:0,planLucro:0,curso:0};
-  const fat   ={manual:0,mapa:0,checklist:0,checklistMapa:0,planFin:0,guiaCaixa:0,planLucro:0,curso:0};
+  const counts={manual:0,mapa:0,checklist:0,planFin:0,guiaCaixa:0,planLucro:0,curso:0};
+  const fat   ={manual:0,mapa:0,checklist:0,planFin:0,guiaCaixa:0,planLucro:0,curso:0};
   const statusCounts={}, statusVals={};
   let totalFat=0, totalTaxa=0;
   const buyerCountedForProd=new Map(); // bKey → Set(prodId) — evita contar o mesmo comprador 2x por produto
@@ -2015,7 +2020,7 @@ function funilBarras(counts,fat,pct){
   const CORES={
     manual:      "#185FA5", checklist:    "#3B6D11", planFin:  "#0F6E56",
     planLucro:   "#854F0B", curso:        "#993C1D",
-    mapa:        "#185FA5", guiaCaixa:    "#0F6E56", checklistMapa:"#3B6D11",
+    mapa:        "#185FA5", guiaCaixa:    "#0F6E56",
   };
   const steps=getFunilSteps().map(s=>({...s,color:CORES[s.id]||"#555"}));
   return steps.map(function(s){
@@ -2575,17 +2580,16 @@ function renderGeralFunil(){
 
   // Barras do funil geral (8 passos)
   const GERAL_STEPS=[
-    {id:"manual",        label:"Manual Definitivo",      step:"Produto de entrada"},
-    {id:"mapa",          label:"Mapa da Casa",           step:"Produto de entrada"},
-    {id:"checklist",     label:"Checklist",              step:"Order Bump (Manual)"},
-    {id:"planFin",       label:"Planilha Financiamento", step:"Order Bump (Manual)"},
-    {id:"guiaCaixa",     label:"Guia Definitivo Caixa",  step:"Order Bump (Mapa)"},
-    {id:"checklistMapa", label:"Checklist Documentos",   step:"Order Bump (Mapa)"},
-    {id:"planLucro",     label:"Planilha Lucro",          step:"Upsell"},
-    {id:"curso",         label:"Curso Completo",          step:"Ascensão"},
+    {id:"manual",    label:"Manual Definitivo",      step:"Produto de entrada"},
+    {id:"mapa",      label:"Mapa da Casa",           step:"Produto de entrada"},
+    {id:"checklist", label:"Checklist",              step:"Order Bump (Manual + Mapa)"},
+    {id:"planFin",   label:"Planilha Financiamento", step:"Order Bump (Manual)"},
+    {id:"guiaCaixa", label:"Guia Definitivo Caixa",  step:"Order Bump (Mapa)"},
+    {id:"planLucro", label:"Planilha Lucro",          step:"Upsell"},
+    {id:"curso",     label:"Curso Completo",          step:"Ascensão"},
   ];
   const GERAL_CORES={manual:"#185FA5",mapa:"#1F7A8C",checklist:"#3B6D11",planFin:"#0F6E56",
-    guiaCaixa:"#0F6E56",checklistMapa:"#3B6D11",planLucro:"#854F0B",curso:"#993C1D"};
+    guiaCaixa:"#0F6E56",planLucro:"#854F0B",curso:"#993C1D"};
 
   function pctG(id){
     return entryCount>0?((counts[id]||0)/entryCount)*100:0;
