@@ -710,11 +710,34 @@ async function loadData(force=false){
     try{ S.mapa.funil = buildFunilData(S.mapa.funilRows, S.fStartDate, S.fEndDate, "mapa"); }
     catch(fe){ console.error("buildFunilData mapa error:",fe); S.mapa.funil={}; }
 
-    // ── Geral: consolida Manual + Mapa ──────────────────────────────────────
-    S.geral.funilRows = [
-      ...S.funilRows.map(r=>({...r,_gf:"manual"})),
-      ...S.mapa.funilRows.map(r=>({...r,_gf:"mapa"}))
-    ];
+    // ── Geral: consolida Manual + Mapa sem duplicar produtos shared ───────────
+    // Hist: cada linha classificada uma única vez (manual tem prioridade)
+    const geralHistRows = histRows.map(r=>{
+      const n=r["Nome do produto"]||"";
+      const gf=classifyProduct(n,"manual")?"manual":classifyProduct(n,"mapa")?"mapa":null;
+      return gf?{...r,_gf:gf}:null;
+    }).filter(Boolean);
+    // Webhook: cada transação expandida uma única vez (funil determinado pelo principal)
+    const geralWebhookRows = [];
+    for(const r of rawFunil){
+      const nP=(r["Nome do produto principal"]||"");
+      const pMan=classifyProduct(nP,"manual"), pMap=classifyProduct(nP,"mapa");
+      const gf=pMan?"manual":pMap?"mapa":null;
+      if(!gf) continue;
+      const cols=[
+        {n:nP, v:r["Valor do produto principal"]||r["Valor do produto"]||"0"},
+        {n:r["Nome do orderbump 01"]||"", v:r["Valor order bump 01"]||"0"},
+        {n:r["Nome do orderbump 02"]||"", v:r["Valor order bump 02"]||"0"},
+      ];
+      const st=normalizeStatus(r["Status da compra"]||"");
+      for(const c of cols){
+        if(!c.n) continue;
+        const pid=classifyProduct(c.n,gf)||classifyProduct(c.n,gf==="manual"?"mapa":"manual");
+        if(!pid) continue;
+        geralWebhookRows.push({...r,"Nome do produto":c.n,"Valor do produto":c.v,"Status da compra":st,_gf:gf});
+      }
+    }
+    S.geral.funilRows = [...geralWebhookRows, ...geralHistRows];
     // Combina meta por dia (soma Manual + Mapa)
     const allMetaDts=new Set([...Object.keys(S.meta),...Object.keys(S.mapa.meta)]);
     S.geral.meta={};
