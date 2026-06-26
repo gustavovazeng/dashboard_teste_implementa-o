@@ -701,20 +701,20 @@ async function loadData(force=false){
     // ── Funil Manual — combina webhook (expandido) + histórica ───────────────
     const rawFunil = parseSheet(fj);
     const webhookFunilRows = expandFunilRows(rawFunil,"manual");
-    S.funilRows = deduplicateFunilRows([...webhookFunilRows, ...histRows.filter(r=>classifyProduct(r["Nome do produto"],"manual")!==null)]);
+    S.funilRows = [...webhookFunilRows, ...histRows.filter(r=>classifyProduct(r["Nome do produto"],"manual")!==null)];
     try{ S.funil = buildFunilData(S.funilRows, S.fStartDate, S.fEndDate); }
     catch(fe){ console.error("buildFunilData error:",fe); S.funil={}; }
 
     // ── Funil Mapa ──
-    S.mapa.funilRows = deduplicateFunilRows([...expandFunilRows(rawFunil,"mapa"), ...histRows.filter(r=>classifyProduct(r["Nome do produto"],"mapa")!==null)]);
+    S.mapa.funilRows = [...expandFunilRows(rawFunil,"mapa"), ...histRows.filter(r=>classifyProduct(r["Nome do produto"],"mapa")!==null)];
     try{ S.mapa.funil = buildFunilData(S.mapa.funilRows, S.fStartDate, S.fEndDate, "mapa"); }
     catch(fe){ console.error("buildFunilData mapa error:",fe); S.mapa.funil={}; }
 
     // ── Geral: consolida Manual + Mapa ──────────────────────────────────────
-    S.geral.funilRows = deduplicateFunilRows([
+    S.geral.funilRows = [
       ...S.funilRows.map(r=>({...r,_gf:"manual"})),
       ...S.mapa.funilRows.map(r=>({...r,_gf:"mapa"}))
-    ]);
+    ];
     // Combina meta por dia (soma Manual + Mapa)
     const allMetaDts=new Set([...Object.keys(S.meta),...Object.keys(S.mapa.meta)]);
     S.geral.meta={};
