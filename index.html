@@ -368,11 +368,12 @@ function renderHeader(){
   tabsEl.innerHTML=tabs.map(t=>`<button class="htab${p===t.id?" htab-active":""}" onclick="navTo('${t.id}')">${t.label}</button>`).join("");
   // Period presets
   const per=getCurrentPeriod();
-  const QUICKS=["hoje","ontem","7d","30d"];
+  const QUICKS=["hoje","ontem","7d","30d","mes"];
+  const QLABEL={"hoje":"Hoje","ontem":"Ontem","7d":"7 dias","30d":"30 dias","mes":"Este mês"};
   // Funil pages have an extra "Todos" option
   const isFunilPage=(p==="funil"||p==="geral-funil");
   const preEl=document.getElementById("hdr-presets"); if(!preEl) return;
-  let presetsHtml=QUICKS.map(k=>`<button class="btn-pre${per.q===k?" on":""}" onclick="applyQuickCurrent('${k}')">${k==="hoje"?"Hoje":k==="ontem"?"Ontem":k==="7d"?"7 dias":"30 dias"}</button>`).join("");
+  let presetsHtml=QUICKS.map(k=>`<button class="btn-pre${per.q===k?" on":""}" onclick="applyQuickCurrent('${k}')">${QLABEL[k]}</button>`).join("");
   if(isFunilPage) presetsHtml=`<button class="btn-pre${(!per.q||per.q==="all")?" on":""}" onclick="applyQuickCurrentAll()">Todos</button>`+presetsHtml;
   preEl.innerHTML=presetsHtml;
   // Date inputs
@@ -1544,9 +1545,9 @@ function renderAnuncios(){
       }
     }
 
-    // Passo B: buyer → totalGasto (todos os produtos Paga no período, sem duplicatas)
+    // Passo B: buyer → totalGasto (produtos do funil ativo Paga no período)
     const buyerTotalSpent=new Map();
-    for(const r of S.geral.funilRows){
+    for(const r of dd.funilRows){
       const dt=toISO(r["Data da compra"]||"")||"";
       if(dt<start||dt>end) continue;
       if((r["Status da compra"]||"").trim()!=="Paga") continue;
@@ -2250,8 +2251,11 @@ function funilPyramid(counts, manualCount, funil){
   const upsellCount=counts["planLucro"]||0;
   const ascCount=counts["curso"]||0;
   const N=manualCount||1;
+  // Alturas proporcionais ao % (max 90px, min 32px)
+  const MAX_H=90, MIN_H=32;
+  function ph(pct){ return Math.max(MIN_H, Math.round((pct/100)*MAX_H)); }
   const levels=[
-    {label:"Compra do produto principal",count:primaryCount,pct:100,
+    {label:"Produto principal",count:primaryCount,pct:100,
      grad:"linear-gradient(135deg,#2dd4bf,#14b8a6)",tc:"#06241f",clip:"0 0,100% 0,90% 100%,10% 100%"},
     {label:"Order bumps",count:obCount,pct:(obCount/N)*100,
      grad:"linear-gradient(135deg,#60a5fa,#2563eb)",tc:"#fff",clip:"10% 0,90% 0,77% 100%,23% 100%"},
@@ -2262,8 +2266,8 @@ function funilPyramid(counts, manualCount, funil){
   ];
   return `<div style="display:flex;flex-direction:column;gap:5px">
     ${levels.map(l=>`
-      <div style="position:relative;height:60px;clip-path:polygon(${l.clip});background:${l.grad};display:flex;align-items:center;justify-content:center;flex-direction:column">
-        <div style="font-size:11px;font-weight:600;color:${l.tc};text-align:center;white-space:nowrap;text-shadow:0 1px 3px rgba(0,0,0,.25)">${l.label}</div>
+      <div style="position:relative;height:${ph(l.pct)}px;clip-path:polygon(${l.clip});background:${l.grad};display:flex;align-items:center;justify-content:center;flex-direction:column">
+        <div style="font-size:10px;font-weight:600;color:${l.tc};text-align:center;white-space:nowrap;text-shadow:0 1px 3px rgba(0,0,0,.3)">${l.label}</div>
         <div style="font-size:10px;color:${l.tc};opacity:.85;text-align:center;font-family:'JetBrains Mono',monospace">${l.count.toLocaleString("pt-BR")} · ${l.pct.toFixed(1)}%</div>
       </div>
     `).join("")}
@@ -2276,6 +2280,11 @@ function renderFunil(){
 
   // Recalcula com filtro de período
   const _dd=D();
+  if(!_dd.funilRows||_dd.funilRows.length===0){
+    el.innerHTML=`<div class="hdr"><div><div class="hdr-title">Métricas do Funil</div><div class="hdr-sub">Aguardando dados...</div></div></div>
+    <div style="text-align:center;padding:60px 0;color:var(--hint);font-size:13px">${S.loading?"Carregando dados...":"Nenhum dado disponível. Clique em Atualizar."}</div>`;
+    return;
+  }
   const fd = buildFunilData(_dd.funilRows, S.fStartDate||"", S.fEndDate||"");
   const primaryKey = S.currentFunil==="mapa" ? "mapa" : "manual";
   const {counts,fat,manualCount,totalFat,totalSpend,roas,ltv,lucro,taxaAscensao,statusCounts,statusVals} = fd;
@@ -2307,7 +2316,7 @@ function renderFunil(){
     <div class="hdr" style="margin-bottom:6px">
       <div>
         <div class="hdr-title">Métricas do Funil</div>
-        <div class="hdr-sub">atualizado em: ${_dd.updated||"—"} · base: ${manualCount.toLocaleString("pt-BR")} compradores do ${S.currentFunil==="mapa"?"Mapa":"Manual"}</div>
+        <div class="hdr-sub">atualizado em: ${_dd.updated||"—"} · ${_dd.funilRows.length} linhas · base: ${manualCount.toLocaleString("pt-BR")} compradores do ${S.currentFunil==="mapa"?"Mapa":"Manual"}</div>
       </div>
     </div>
     ${S.error?`<div class="err">⚠️ ${S.error}</div>`:""}
