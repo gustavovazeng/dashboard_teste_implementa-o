@@ -2048,9 +2048,9 @@ function buildFunilData(rows, start, end, funil){
       return true;
     });
     for(const p of others){
-      counts[p.id]++;
-      fat[p.id]+=p.valor;
-      taxa[p.id]+=(p.taxa||0);
+      counts[p.id]=(counts[p.id]||0)+1;
+      fat[p.id]=(fat[p.id]||0)+p.valor;
+      taxa[p.id]=(taxa[p.id]||0)+(p.taxa||0);
     }
   }
 
