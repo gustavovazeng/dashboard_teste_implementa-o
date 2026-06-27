@@ -1831,6 +1831,7 @@ function expandFunilRows(rawRows, funil){
     }
 
     const dataBruta=stripTime(r["Data da compra"]||"");
+    const adIdRaw=r["Ad Id"]||r["Content"]||"";
     const base={
       "Email":r["Email"]||"",
       "CPF Comprador":r["CPF Comprador"]||"",
@@ -1838,6 +1839,7 @@ function expandFunilRows(rawRows, funil){
       "Nome":r["Nome"]||"",
       "Status da compra":st,
       "Data da compra":dataBruta,
+      "Ad Id":adIdRaw,
     };
     if(r["Nome do produto principal"]){
       out.push({...base,
@@ -2271,9 +2273,13 @@ function funilPyramid(counts, manualCount, funil){
   const upsellCount=counts["planLucro"]||0;
   const ascCount=counts["curso"]||0;
   const N=manualCount||1;
-  // Alturas proporcionais ao % (max 90px, min 32px)
-  const MAX_H=90, MIN_H=32;
-  function ph(pct){ return Math.max(MIN_H, Math.round((pct/100)*MAX_H)); }
+  // Escala sqrt: comprime valores grandes, separa bem os pequenos entre si
+  // MAX_H=120 para o principal (100%), min 10px para não sumir
+  const MAX_H=120, MIN_H=10;
+  function ph(pct){
+    if(pct<=0) return MIN_H;
+    return Math.max(MIN_H, Math.round(Math.sqrt(pct/100)*MAX_H));
+  }
   const levels=[
     {label:"Produto principal",count:primaryCount,pct:100,
      grad:"linear-gradient(135deg,#2dd4bf,#14b8a6)",tc:"#06241f",clip:"0 0,100% 0,90% 100%,10% 100%"},
@@ -2284,13 +2290,19 @@ function funilPyramid(counts, manualCount, funil){
     {label:"Ascensão",count:ascCount,pct:(ascCount/N)*100,
      grad:"linear-gradient(135deg,#fbbf24,#f59e0b)",tc:"#1c0900",clip:"37% 0,63% 0,52% 100%,48% 100%"},
   ];
-  return `<div style="display:flex;flex-direction:column;gap:5px">
-    ${levels.map(l=>`
-      <div style="position:relative;height:${ph(l.pct)}px;clip-path:polygon(${l.clip});background:${l.grad};display:flex;align-items:center;justify-content:center;flex-direction:column">
-        <div style="font-size:10px;font-weight:600;color:${l.tc};text-align:center;white-space:nowrap;text-shadow:0 1px 3px rgba(0,0,0,.3)">${l.label}</div>
-        <div style="font-size:10px;color:${l.tc};opacity:.85;text-align:center;font-family:'JetBrains Mono',monospace">${l.count.toLocaleString("pt-BR")} · ${l.pct.toFixed(1)}%</div>
-      </div>
-    `).join("")}
+  return `<div style="display:flex;flex-direction:column;gap:3px">
+    ${levels.map(l=>{
+      const h=ph(l.pct);
+      const small=h<28;
+      return `
+      <div style="position:relative;height:${h}px;clip-path:polygon(${l.clip});background:${l.grad};display:flex;align-items:center;justify-content:center;flex-direction:column;overflow:hidden">
+        ${small
+          ? `<div style="font-size:9px;font-weight:600;color:${l.tc};text-align:center;white-space:nowrap;line-height:1.2;text-shadow:0 1px 2px rgba(0,0,0,.4)">${l.label} · ${l.count.toLocaleString("pt-BR")} · ${l.pct.toFixed(1)}%</div>`
+          : `<div style="font-size:10px;font-weight:600;color:${l.tc};text-align:center;white-space:nowrap;text-shadow:0 1px 3px rgba(0,0,0,.3)">${l.label}</div>
+             <div style="font-size:10px;color:${l.tc};opacity:.85;text-align:center;font-family:'JetBrains Mono',monospace">${l.count.toLocaleString("pt-BR")} · ${l.pct.toFixed(1)}%</div>`
+        }
+      </div>`;
+    }).join("")}
   </div>`;
 }
 
