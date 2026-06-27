@@ -1653,7 +1653,7 @@ function renderAnuncios(){
     const _bPrinc=new Set(); // identities que compraram o produto principal
     for(const r of _dd.funilRows){
       const dt=toISO(r["Data da compra"]||"")||"";
-      if(dt<start||dt>end) continue;
+      if(dt<S.aStartDate||dt>S.aEndDate) continue;
       if((r["Status da compra"]||"").trim()!=="Paga") continue;
       const em=(r["Email"]||"").toLowerCase().trim();
       const cpf=(r["CPF Comprador"]||"").replace(/[^\d]/g,"");
