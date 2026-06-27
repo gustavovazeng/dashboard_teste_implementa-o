@@ -1643,7 +1643,29 @@ function renderAnuncios(){
   const totCpv=tot.qtd>0?tot.spend/tot.qtd:0;
   const totTicket=tot.qtd>0?tot.valor/tot.qtd:0;
   const rowsQtd=rows.reduce((a,r)=>a+r.qtd,0);
-  const totTicketAsc=rowsQtd>0?(rows.reduce((a,r)=>a+r.ticketAsc*r.qtd,0)/rowsQtd):0;
+  // totTicketAsc = LTV: gasto total / compradores únicos do produto principal (= buildFunilData.ltv)
+  // Usa mesma lógica de dedup que buildFunilData (identity+data) para incluir todos os compradores,
+  // mesmo os sem adId, e inclui planLucro/Curso comprados em dias diferentes
+  {
+    const _dd=D();
+    const _pId=S.currentFunil==="mapa"?"mapa":"manual";
+    const _bSpent=new Map(); // identity → total gasto no período
+    const _bPrinc=new Set(); // identities que compraram o produto principal
+    for(const r of _dd.funilRows){
+      const dt=toISO(r["Data da compra"]||"")||"";
+      if(dt<start||dt>end) continue;
+      if((r["Status da compra"]||"").trim()!=="Paga") continue;
+      const em=(r["Email"]||"").toLowerCase().trim();
+      const cpf=(r["CPF Comprador"]||"").replace(/[^\d]/g,"");
+      const tel=(r["Telefone"]||"").replace(/[^\d]/g,"");
+      const id=em||cpf||tel; if(!id) continue;
+      const val=parseBRL(r["Valor do produto"]||"0");
+      _bSpent.set(id,(_bSpent.get(id)||0)+val);
+      if(classifyProduct(r["Nome do produto"]||"",_pId)===_pId) _bPrinc.add(id);
+    }
+    let _fat=0; for(const k of _bPrinc) _fat+=(_bSpent.get(k)||0);
+    var totTicketAsc=_bPrinc.size>0?_fat/_bPrinc.size:0;
+  }
 
   // Ordenação
   const {col,dir}=S.aSort;
