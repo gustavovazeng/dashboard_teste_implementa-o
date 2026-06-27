@@ -1551,9 +1551,9 @@ function renderAnuncios(){
       return ks[0]||null;
     }
 
-    // Passo A: buyer → adId (primeira compra do produto principal no período com Ad Id)
-    const buyerAdMap=new Map();   // buyerKey → adId
-    const adBuyersMap=new Map();  // adId → Set de buyerKeys
+    // Passo A: adId → Set de eventos de compra (canonical+data) do produto principal
+    // Usa chave canonical+data (igual ao dedup de vendasByAdDate) para alinhar os dois lados
+    const adBuyersMap=new Map();  // adId → Set de eventKeys ("canonical|date")
     for(const r of dd.funilRows){
       const dt=toISO(r["Data da compra"]||"")||"";
       if(dt<start||dt>end) continue;
@@ -1561,22 +1561,21 @@ function renderAnuncios(){
       if(classifyProduct(r["Nome do produto"]||"",currentFunil)!==principalId) continue;
       const adId=extractAdId(r["Ad Id"]||""); if(!adId) continue;
       const key=getCanonical(r); if(!key) continue;
-      if(!buyerAdMap.has(key)){
-        buyerAdMap.set(key,adId);
-        if(!adBuyersMap.has(adId)) adBuyersMap.set(adId,new Set());
-        adBuyersMap.get(adId).add(key);
-      }
+      const eventKey=key+"|"+dt;
+      if(!adBuyersMap.has(adId)) adBuyersMap.set(adId,new Set());
+      adBuyersMap.get(adId).add(eventKey);
     }
 
-    // Passo B: buyer → totalGasto (todos os produtos Paga no período)
-    const buyerTotalSpent=new Map();
+    // Passo B: evento (canonical+data) → totalGasto naquele dia (todos os produtos Paga)
+    const eventTotalSpent=new Map();
     for(const r of dd.funilRows){
       const dt=toISO(r["Data da compra"]||"")||"";
       if(dt<start||dt>end) continue;
       if((r["Status da compra"]||"").trim()!=="Paga") continue;
       const key=getCanonical(r); if(!key) continue;
+      const eventKey=key+"|"+dt;
       const val=parseBRL(r["Valor do produto"]||"0");
-      buyerTotalSpent.set(key,(buyerTotalSpent.get(key)||0)+val);
+      eventTotalSpent.set(eventKey,(eventTotalSpent.get(eventKey)||0)+val);
     }
 
     const rows=[];
@@ -1603,11 +1602,11 @@ function renderAnuncios(){
       }
       if(!igUrl) igUrl=meta.igUrl;
 
-      // Ticket Médio Ascensões: soma tudo que os compradores deste ad gastaram (todos os produtos)
+      // Ticket Médio Ascensões: soma gasto de cada evento de compra atribuído a este ad
       let totalAscensoes=0;
       for(const adId of useIds){
-        for(const buyerKey of (adBuyersMap.get(adId)||new Set())){
-          totalAscensoes+=(buyerTotalSpent.get(buyerKey)||0);
+        for(const eventKey of (adBuyersMap.get(adId)||new Set())){
+          totalAscensoes+=(eventTotalSpent.get(eventKey)||0);
         }
       }
 
@@ -1643,7 +1642,8 @@ function renderAnuncios(){
   const totCpm=tot.impressions>0?(tot.spend/tot.impressions)*1000:0;
   const totCpv=tot.qtd>0?tot.spend/tot.qtd:0;
   const totTicket=tot.qtd>0?tot.valor/tot.qtd:0;
-  const totTicketAsc=rows.length>0&&tot.qtd>0?(rows.reduce((a,r)=>a+r.ticketAsc*r.qtd,0)/tot.qtd):0;
+  const rowsQtd=rows.reduce((a,r)=>a+r.qtd,0);
+  const totTicketAsc=rowsQtd>0?(rows.reduce((a,r)=>a+r.ticketAsc*r.qtd,0)/rowsQtd):0;
 
   // Ordenação
   const {col,dir}=S.aSort;
