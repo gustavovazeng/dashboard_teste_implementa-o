@@ -16,9 +16,7 @@ export default async function handler(req, res) {
     'campaign_name'
   ].join(',');
 
-  const yesterday = new Date();
-  yesterday.setDate(yesterday.getDate() - 1);
-  const dateStr = yesterday.toISOString().split('T')[0];
+const dateStr = '2026-06-26';
 
   let allRows = [];
 
