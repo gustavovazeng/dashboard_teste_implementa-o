@@ -1525,6 +1525,32 @@ function renderAnuncios(){
     const currentFunil=S.currentFunil;
     const principalId=currentFunil==="mapa"?"mapa":"manual";
 
+    // Passo 0: mapa de identidades unificado (email + cpf + tel → chave canônica)
+    // Garante que o mesmo comprador é reconhecido mesmo usando campos diferentes em compras distintas
+    const identMap=new Map();
+    function getIdKeys(r){
+      const ks=[];
+      const em=(r["Email"]||"").toLowerCase().trim();
+      const cpf=(r["CPF Comprador"]||"").replace(/[^\d]/g,"");
+      const tel=(r["Telefone"]||"").replace(/[^\d]/g,"");
+      if(em)  ks.push("e:"+em);
+      if(cpf) ks.push("c:"+cpf);
+      if(tel) ks.push("t:"+tel);
+      return ks;
+    }
+    for(const r of dd.funilRows){
+      const ks=getIdKeys(r); if(!ks.length) continue;
+      let canonical=null;
+      for(const k of ks){ if(identMap.has(k)){canonical=identMap.get(k);break;} }
+      if(!canonical) canonical=ks[0];
+      for(const k of ks) identMap.set(k,canonical);
+    }
+    function getCanonical(r){
+      const ks=getIdKeys(r);
+      for(const k of ks){ if(identMap.has(k)) return identMap.get(k); }
+      return ks[0]||null;
+    }
+
     // Passo A: buyer → adId (primeira compra do produto principal no período com Ad Id)
     const buyerAdMap=new Map();   // buyerKey → adId
     const adBuyersMap=new Map();  // adId → Set de buyerKeys
@@ -1534,10 +1560,7 @@ function renderAnuncios(){
       if((r["Status da compra"]||"").trim()!=="Paga") continue;
       if(classifyProduct(r["Nome do produto"]||"",currentFunil)!==principalId) continue;
       const adId=extractAdId(r["Ad Id"]||""); if(!adId) continue;
-      const em=(r["Email"]||"").toLowerCase().trim();
-      const cpf=(r["CPF Comprador"]||"").replace(/[^\d]/g,"");
-      const tel=(r["Telefone"]||"").replace(/[^\d]/g,"");
-      const key=em||cpf||tel; if(!key) continue;
+      const key=getCanonical(r); if(!key) continue;
       if(!buyerAdMap.has(key)){
         buyerAdMap.set(key,adId);
         if(!adBuyersMap.has(adId)) adBuyersMap.set(adId,new Set());
@@ -1545,16 +1568,13 @@ function renderAnuncios(){
       }
     }
 
-    // Passo B: buyer → totalGasto (produtos do funil ativo Paga no período)
+    // Passo B: buyer → totalGasto (todos os produtos Paga no período)
     const buyerTotalSpent=new Map();
     for(const r of dd.funilRows){
       const dt=toISO(r["Data da compra"]||"")||"";
       if(dt<start||dt>end) continue;
       if((r["Status da compra"]||"").trim()!=="Paga") continue;
-      const em=(r["Email"]||"").toLowerCase().trim();
-      const cpf=(r["CPF Comprador"]||"").replace(/[^\d]/g,"");
-      const tel=(r["Telefone"]||"").replace(/[^\d]/g,"");
-      const key=em||cpf||tel; if(!key) continue;
+      const key=getCanonical(r); if(!key) continue;
       const val=parseBRL(r["Valor do produto"]||"0");
       buyerTotalSpent.set(key,(buyerTotalSpent.get(key)||0)+val);
     }
