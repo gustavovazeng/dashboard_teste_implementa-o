@@ -4,87 +4,84 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
 <title>Manual Definitivo — Dashboard</title>
-<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@700&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet"/>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
-  --bg:#faf8f5;--card:#ffffff;--border:#ebe5dc;--border-h:#d8cfc3;
-  --sidebar:#1c1410;--text:#1c1410;--muted:#7a6c5e;--hint:#a0917e;
-  --accent:#e8621a;--accent-bg:rgba(232,98,26,0.08);
-  --green:#1a7a4a;--amber:#c07800;--red:#b91c1c;
-  --chart:#2d7d9a;--chart-b:#a06000;
+  --bg:#0a0e17;--card:#121826;--border:rgba(255,255,255,.07);--border-h:rgba(255,255,255,.12);
+  --text:#e8edf6;--text-strong:#f1f5fb;--muted:#8a96ab;--hint:#6b7689;
+  --accent:#3b82f6;--accent-bg:rgba(59,130,246,.16);
+  --green:#34d399;--amber:#fbbf24;--red:#f87171;
+  --surf:rgba(255,255,255,.03);
 }
-html,body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;min-height:100vh}
-.layout{display:flex;min-height:100vh}
+html,body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;min-height:100vh}
 
-/* Sidebar */
-.sidebar{width:200px;background:var(--sidebar);display:flex;flex-direction:column;position:fixed;top:0;left:0;height:100vh;flex-shrink:0;overflow-y:auto}
-.sidebar-logo{padding:14px 16px 10px;font-size:10px;font-weight:700;color:#4a3828;text-transform:uppercase;letter-spacing:.12em;border-bottom:1px solid #2a1e14}
+/* ─── App Header ─────────────────────────────────────────────────── */
+.app-hdr{position:sticky;top:0;z-index:20;background:rgba(12,17,28,.92);backdrop-filter:blur(10px);
+  border-bottom:1px solid var(--border);padding:0 26px;height:54px;
+  display:flex;align-items:center;justify-content:space-between;gap:16px}
 
-/* Master tabs */
-.master-tabs{padding:10px 10px 6px;border-bottom:1px solid #2a1e14}
-.master-lbl{font-size:8px;font-weight:700;color:#4a3828;text-transform:uppercase;letter-spacing:.1em;margin-bottom:6px;padding:0 4px}
-.master-tab{display:flex;align-items:center;justify-content:space-between;padding:7px 10px;border-radius:6px;cursor:pointer;margin-bottom:3px;border:1px solid transparent;transition:all .15s;text-decoration:none}
-.master-tab.mt-active{background:rgba(232,98,26,0.12);border-color:rgba(232,98,26,0.3)}
-.master-tab.mt-inactive{opacity:.45}
-.master-tab:hover.mt-active{background:rgba(232,98,26,0.18)}
-.master-tab-name{font-size:11px;font-weight:600}
-.master-tab.mt-active .master-tab-name{color:#e8621a}
-.master-tab.mt-inactive .master-tab-name{color:#5a4838}
-.mt-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;margin-top:1px}
-.master-tab.mt-active .mt-dot{background:#e8621a}
-.master-tab.mt-inactive .mt-dot{background:#3a2a1e}
-.mt-soon{font-size:8px;background:rgba(90,72,56,.4);color:#6a5848;padding:1px 5px;border-radius:3px}
+/* Funil dropdown */
+.funil-wrap{position:relative}
+.funil-btn{display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:9px;border:1px solid var(--border);background:var(--surf);cursor:pointer;color:var(--text);font-family:'DM Sans',sans-serif;font-size:12px;transition:border-color .15s}
+.funil-btn:hover{border-color:var(--border-h)}
+.funil-dot{width:7px;height:7px;border-radius:50%;background:var(--green);flex-shrink:0}
+.funil-name{font-size:12px;font-weight:600;color:var(--text-strong)}
+.funil-status{font-size:9px;color:var(--green);letter-spacing:.04em}
+.funil-chevron{color:var(--muted);font-size:10px;margin-left:2px}
+.funil-menu{position:absolute;top:calc(100% + 6px);left:0;background:#1a2236;border:1px solid var(--border-h);border-radius:10px;padding:4px;min-width:180px;box-shadow:0 6px 30px rgba(2,6,20,.45);z-index:100}
+.funil-opt{padding:8px 12px;border-radius:7px;cursor:pointer;font-size:12px;font-weight:500;color:var(--muted);transition:all .12s;display:flex;align-items:center;gap:8px}
+.funil-opt:hover{background:var(--accent-bg);color:var(--text)}
+.funil-opt.fopt-active{background:var(--accent-bg);color:#cfe0ff}
+.fopt-dot{width:6px;height:6px;border-radius:50%;background:var(--muted)}
+.funil-opt.fopt-active .fopt-dot{background:var(--green)}
 
-/* Sub-nav */
-.subnav-lbl{padding:8px 16px 4px;font-size:8px;font-weight:700;color:#3a2a1e;text-transform:uppercase;letter-spacing:.1em}
-.nav-item{display:flex;align-items:center;padding:11px 16px;font-size:12px;color:#5a4838;cursor:pointer;border-left:3px solid transparent;gap:8px;transition:color .15s}
-.nav-item:hover{color:#8a7060}
-.nav-item.active{color:var(--accent);background:var(--accent-bg);border-left-color:var(--accent);font-weight:600}
-.nav-item.disabled{opacity:.35;pointer-events:none}
-.nav-soon{font-size:9px;background:rgba(90,72,56,.4);color:#8a7060;padding:1px 5px;border-radius:3px;margin-left:auto}
+/* Nav tabs */
+.hdr-tabs{display:flex;align-items:center;gap:4px}
+.htab{display:flex;align-items:center;gap:6px;padding:6px 14px;border-radius:8px;border:none;background:transparent;cursor:pointer;font-family:'DM Sans',sans-serif;font-size:12px;font-weight:500;color:var(--muted);transition:all .15s;white-space:nowrap}
+.htab:hover{color:var(--text)}
+.htab.htab-active{background:rgba(59,130,246,.16);color:#fff}
+.htab-icon{font-size:13px}
 
-/* Main */
-.main{margin-left:200px;flex:1;padding:24px 28px;min-width:0}
+/* Period controls */
+.hdr-right{display:flex;align-items:center;gap:8px}
+.presets{display:flex;gap:4px}
+.btn-pre{background:transparent;border:1px solid var(--border);color:var(--muted);padding:4px 11px;border-radius:8px;cursor:pointer;font-size:11px;font-family:'DM Sans',sans-serif;font-weight:500;transition:all .12s;white-space:nowrap}
+.btn-pre:hover{border-color:var(--border-h);color:var(--text)}
+.btn-pre.on{background:rgba(59,130,246,.16);border-color:rgba(96,165,250,.35);color:#cfe0ff;font-weight:600}
+.drbox{display:flex;align-items:center;background:var(--surf);border:1px solid var(--border);border-radius:8px;overflow:hidden;transition:border-color .15s;padding:0 6px;gap:3px}
+.drbox:focus-within{border-color:rgba(96,165,250,.5)}
+.drbox-icon{color:var(--hint);font-size:12px;user-select:none}
+.drbox input[type=date]{background:transparent;border:none;outline:none;color:var(--text);font-size:11px;font-family:'JetBrains Mono',monospace;padding:5px 4px;cursor:pointer;color-scheme:dark;width:100px}
+.drbox-sep{color:var(--hint);font-size:11px;user-select:none}
+.btn-update{background:rgba(59,130,246,.16);border:1px solid rgba(96,165,250,.3);color:#60a5fa;padding:5px 14px;border-radius:8px;cursor:pointer;font-size:12px;font-family:'DM Sans',sans-serif;font-weight:600;transition:all .15s;white-space:nowrap;box-shadow:0 0 16px rgba(59,130,246,.2)}
+.btn-update:hover:not(:disabled){box-shadow:0 0 16px rgba(59,130,246,.4)}
+.btn-update:disabled{opacity:.4;cursor:not-allowed}
+
+/* ─── Content ────────────────────────────────────────────────────── */
+.app-content{max-width:1640px;margin:0 auto;padding:22px 30px 40px}
 .page{display:none}.page.active{display:block}
 
-/* Header */
+/* Page header */
 .hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px}
-.hdr-title{font-size:15px;font-weight:500;color:var(--text);line-height:1.4}
-.hdr-sub{margin-top:4px;font-size:11px;color:var(--hint);font-family:'DM Mono',monospace}
-.btn-refresh{background:var(--card);border:0.5px solid var(--border-h);color:var(--muted);padding:8px 14px;border-radius:8px;cursor:pointer;font-size:12px;font-family:'Inter',sans-serif;font-weight:400;transition:all .15s;white-space:nowrap}
-.btn-refresh:hover:not(:disabled){border-color:var(--accent);color:var(--accent)}
-.btn-refresh:disabled{opacity:.4;cursor:not-allowed}
-.err{background:rgba(185,28,28,.06);border:0.5px solid rgba(185,28,28,.25);border-radius:8px;padding:12px 16px;margin-bottom:18px;font-size:13px;color:#b91c1c;line-height:1.5}
-
-/* Period */
-.period-wrap{margin-bottom:20px}
-.period-top{display:flex;align-items:center;gap:10px;margin-bottom:9px}
-.period-lbl{font-size:10px;color:var(--text);text-transform:uppercase;letter-spacing:.07em;font-weight:700}
-.drbox{display:flex;align-items:center;background:var(--card);border:0.5px solid var(--border);border-radius:8px;overflow:hidden;transition:border-color .15s}
-.drbox:focus-within{border-color:var(--accent)}
-.drbox-icon{padding:7px 6px 7px 11px;color:var(--hint);font-size:13px;user-select:none}
-.drbox input[type=date]{background:transparent;border:none;outline:none;color:var(--text);font-size:12px;font-family:'DM Mono',monospace;padding:7px 10px 7px 4px;cursor:pointer;color-scheme:light;width:116px}
-.drbox-sep{color:var(--hint);font-size:13px;padding:0 4px;user-select:none}
-.period-quick{display:flex;gap:5px;flex-wrap:wrap}
-.btn-q{background:transparent;border:0.5px solid var(--border-h);color:var(--muted);padding:5px 12px;border-radius:6px;cursor:pointer;font-size:11px;font-family:'Inter',sans-serif;transition:all .12s;white-space:nowrap}
-.btn-q:hover{border-color:var(--accent);color:var(--accent)}
-.btn-q.on{background:var(--accent-bg);border-color:var(--accent);color:var(--accent);font-weight:600}
+.hdr-title{font-size:22px;font-weight:700;font-family:'Sora',sans-serif;color:var(--text-strong);line-height:1.25}
+.hdr-sub{margin-top:5px;font-size:11px;color:var(--hint);font-family:'JetBrains Mono',monospace}
+.err{background:rgba(248,113,113,.06);border:1px solid rgba(248,113,113,.25);border-radius:8px;padding:12px 16px;margin-bottom:18px;font-size:13px;color:var(--red);line-height:1.5}
 
 /* KPIs */
-.g3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
-.g4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
-.g5{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}
-.kc{background:var(--card);border:0.5px solid var(--border);border-radius:10px;padding:16px 18px;transition:border-color .2s}
+.g3{display:grid;grid-template-columns:repeat(3,1fr);gap:13px}
+.g4{display:grid;grid-template-columns:repeat(4,1fr);gap:13px}
+.g5{display:grid;grid-template-columns:repeat(5,1fr);gap:13px}
+.kc{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:16px 18px;transition:border-color .2s}
 .kc:hover{border-color:var(--border-h)}
-.kc-lbl{font-size:9px;color:var(--text);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px;font-weight:700}
-.kc-val{font-family:'Inter',sans-serif;font-weight:400;letter-spacing:-.03em;font-size:22px;line-height:1.1}
+.kc-lbl{font-size:9px;color:var(--hint);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px;font-weight:700}
+.kc-val{font-family:'JetBrains Mono',monospace;font-weight:600;letter-spacing:-.02em;font-size:22px;line-height:1.1;color:var(--text-strong)}
 .kc-val-sm{font-size:18px}
-.kc-sub{font-size:10px;color:var(--hint);margin-top:5px;font-family:'DM Mono',monospace}
-.kc-date{font-size:9px;color:var(--hint);margin-bottom:4px;font-family:'DM Mono',monospace;font-weight:500}
+.kc-sub{font-size:10px;color:var(--hint);margin-top:5px;font-family:'JetBrains Mono',monospace}
+.kc-date{font-size:9px;color:var(--hint);margin-bottom:4px;font-family:'JetBrains Mono',monospace;font-weight:500}
 
 /* Section label */
-.section-lbl{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px;margin-top:20px}
+.section-lbl{font-size:9px;font-weight:700;color:var(--hint);text-transform:uppercase;letter-spacing:.09em;margin-bottom:10px;margin-top:20px}
 
 /* Status legend */
 .status-legend{display:flex;gap:16px;margin-bottom:14px}
@@ -92,86 +89,110 @@ html,body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;
 .sl-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
 
 /* Charts */
-.cc{background:var(--card);border:0.5px solid var(--border);border-radius:10px;padding:16px 18px 12px}
+.cc{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:18px 20px 14px}
 .ch{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px}
-.ct{font-size:10px;font-weight:700;color:var(--text);text-transform:uppercase;letter-spacing:.07em}
+.ct{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.07em}
 .lg{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
-.li{display:flex;align-items:center;gap:5px;font-size:10px;color:var(--text)}
+.li{display:flex;align-items:center;gap:5px;font-size:10px;color:var(--muted)}
 .ll{width:14px;height:2px;border-radius:2px}
 .ld{width:7px;height:7px;border-radius:50%}
-.charts-2x2{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:20px}
+.charts-2x2{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-bottom:20px}
+.charts-2x3{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-bottom:20px}
 
 /* Toggle overlay buttons */
 .overlay-btns{display:flex;gap:6px}
-.btn-overlay{font-size:10px;padding:3px 10px;border-radius:5px;border:0.5px solid var(--border-h);color:var(--muted);background:transparent;cursor:pointer;transition:all .12s;font-family:'Inter',sans-serif}
-.btn-overlay:hover{border-color:var(--accent);color:var(--accent)}
-.btn-overlay.on{background:var(--accent-bg);border-color:var(--accent);color:var(--accent);font-weight:600}
+.btn-overlay{font-size:10px;padding:3px 10px;border-radius:5px;border:1px solid var(--border-h);color:var(--muted);background:transparent;cursor:pointer;transition:all .12s;font-family:'DM Sans',sans-serif}
+.btn-overlay:hover{border-color:var(--accent);color:var(--text)}
+.btn-overlay.on{background:var(--accent-bg);border-color:rgba(96,165,250,.4);color:#60a5fa;font-weight:600}
 
 /* Tooltip */
-.tip{background:var(--card);border:0.5px solid var(--border-h);border-radius:8px;padding:10px 13px;font-size:12px;box-shadow:0 4px 16px rgba(28,20,16,.12);display:none;position:absolute;pointer-events:none;z-index:20;min-width:150px}
-.tl{color:var(--hint);margin-bottom:5px;font-weight:500;font-size:10px;font-family:'DM Mono',monospace}
+.tip{background:#1a2236;border:1px solid var(--border-h);border-radius:8px;padding:10px 13px;font-size:12px;box-shadow:0 4px 16px rgba(2,6,20,.45);display:none;position:absolute;pointer-events:none;z-index:20;min-width:150px}
+.tl{color:var(--hint);margin-bottom:5px;font-weight:500;font-size:10px;font-family:'JetBrains Mono',monospace}
 .tr{display:flex;justify-content:space-between;gap:14px;margin-bottom:2px;font-size:11px}
-.tv{color:var(--text);font-weight:500}
+.tv{color:var(--text-strong);font-weight:600;font-family:'JetBrains Mono',monospace}
 
 /* Spinner */
 .sw{display:flex;flex-direction:column;align-items:center;justify-content:center;height:60vh;gap:16px}
 .sp{width:32px;height:32px;border:2px solid var(--border);border-top:2px solid var(--accent);border-radius:50%;animation:spin .8s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 .st{color:var(--hint);font-size:13px}
-.foot{margin-top:18px;font-size:10px;color:var(--border-h);text-align:center;font-family:'DM Mono',monospace}
+.foot{margin-top:18px;font-size:10px;color:var(--hint);text-align:center;font-family:'JetBrains Mono',monospace;opacity:.5}
 canvas{display:block}
-input[type=date]::-webkit-calendar-picker-indicator{opacity:.5;cursor:pointer}
+input[type=date]::-webkit-calendar-picker-indicator{opacity:.4;cursor:pointer;filter:invert(1)}
+
+/* Quick period inside pages (funil / análise) */
+.period-wrap{margin-bottom:18px}
+.period-top{display:flex;align-items:center;gap:10px;margin-bottom:7px}
+.period-lbl{font-size:9px;color:var(--hint);text-transform:uppercase;letter-spacing:.07em;font-weight:700}
+.drbox-sm{display:flex;align-items:center;background:var(--surf);border:1px solid var(--border);border-radius:7px;overflow:hidden;gap:2px;padding:0 5px}
+.drbox-sm input[type=date]{background:transparent;border:none;outline:none;color:var(--text);font-size:11px;font-family:'JetBrains Mono',monospace;padding:4px 4px;cursor:pointer;color-scheme:dark;width:96px}
+.period-quick{display:flex;gap:5px;flex-wrap:wrap}
+.btn-q{background:transparent;border:1px solid var(--border);color:var(--hint);padding:4px 11px;border-radius:6px;cursor:pointer;font-size:11px;font-family:'DM Sans',sans-serif;transition:all .12s;white-space:nowrap}
+.btn-q:hover{border-color:var(--border-h);color:var(--text)}
+.btn-q.on{background:var(--accent-bg);border-color:rgba(96,165,250,.35);color:#cfe0ff;font-weight:600}
+
+/* Análise sub-tabs */
+.ana-tabs{display:flex;border-bottom:1px solid var(--border);margin-bottom:14px;gap:0}
+.ana-tab{padding:7px 14px;font-size:11px;font-weight:500;color:var(--hint);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;transition:all .12s}
+.ana-tab:hover{color:var(--text)}
+.ana-tab.active{color:#60a5fa;border-bottom-color:#3b82f6}
 </style>
 </head>
 <body>
-<div class="layout">
-  <nav class="sidebar">
-    <div class="sidebar-logo">Dashboard</div>
-
-    <!-- Master tabs — seleção de funil -->
-    <div class="master-tabs">
-      <div class="master-lbl">Funis</div>
-      <a class="master-tab mt-active" onclick="switchFunil('manual')">
-        <div>
-          <div class="master-tab-name">Manual Definitivo</div>
-          <div style="font-size:9px;color:#e8621a;margin-top:1px" id="mt-manual-sub">ativo</div>
-        </div>
-        <div class="mt-dot"></div>
-      </a>
-      <a class="master-tab mt-inactive" onclick="switchFunil('mapa')">
-        <div>
-          <div class="master-tab-name">Mapa da Casa</div>
-          <div style="font-size:9px;color:#5a4838;margin-top:1px" id="mt-mapa-sub">inativo</div>
-        </div>
-        <div class="mt-dot"></div>
-      </a>
-      <a class="master-tab mt-inactive" onclick="switchFunil('geral')">
-        <div>
-          <div class="master-tab-name">Consolidado</div>
-          <div style="font-size:9px;color:#5a4838;margin-top:1px" id="mt-geral-sub">inativo</div>
-        </div>
-        <div class="mt-dot"></div>
-      </a>
+<!-- ─── App Header ───────────────────────────────────────────────── -->
+<header class="app-hdr">
+  <!-- Left: funil selector -->
+  <div class="funil-wrap" id="funil-wrap">
+    <button class="funil-btn" id="funil-btn" onclick="toggleFunilMenu(event)">
+      <span class="funil-dot" id="funil-dot"></span>
+      <div>
+        <div class="funil-name" id="funil-name">Manual Definitivo</div>
+        <div class="funil-status" id="funil-status">ativo</div>
+      </div>
+      <span class="funil-chevron">▾</span>
+    </button>
+    <div class="funil-menu" id="funil-menu" style="display:none">
+      <div class="funil-opt fopt-active" id="fopt-manual" onclick="selectFunil('manual')"><span class="fopt-dot"></span>Manual Definitivo</div>
+      <div class="funil-opt" id="fopt-mapa" onclick="selectFunil('mapa')"><span class="fopt-dot"></span>Mapa da Casa</div>
+      <div class="funil-opt" id="fopt-geral" onclick="selectFunil('geral')"><span class="fopt-dot"></span>Consolidado</div>
     </div>
-
-    <!-- Sub-nav do funil ativo -->
-    <div class="subnav-lbl" id="subnav-lbl">Manual Definitivo</div>
-    <a class="nav-item nav-funil active" onclick="navTo('principal')">Principal</a>
-    <a class="nav-item nav-funil" onclick="navTo('trafego')">Métricas tráfego</a>
-    <a class="nav-item nav-funil" onclick="navTo('funil')">Métricas do funil</a>
-    <a class="nav-item nav-funil" onclick="navTo('anuncios')">Anúncios</a>
-    <a class="nav-item nav-geral" style="display:none" onclick="navTo('geral-principal')">Principal</a>
-    <a class="nav-item nav-geral" style="display:none" onclick="navTo('geral-funil')">Métricas do funil</a>
-  </nav>
-  <div class="main">
-    <div class="sw" id="loading"><div class="sp"></div><p class="st">Carregando dados...</p></div>
-    <div id="page-principal"       class="page active"></div>
-    <div id="page-trafego"         class="page"></div>
-    <div id="page-anuncios"        class="page"></div>
-    <div id="page-funil"           class="page"></div>
-    <div id="page-geral-principal" class="page"></div>
-    <div id="page-geral-funil"     class="page"></div>
   </div>
+
+  <!-- Center: navigation tabs -->
+  <nav class="hdr-tabs" id="hdr-tabs">
+    <button class="htab htab-active" id="htab-principal" onclick="navTo('principal')"><span class="htab-icon">⊞</span>Principal</button>
+    <button class="htab" id="htab-trafego" onclick="navTo('trafego')"><span class="htab-icon">⟳</span>Métricas tráfego</button>
+    <button class="htab" id="htab-funil" onclick="navTo('funil')"><span class="htab-icon">▽</span>Métricas do funil</button>
+    <button class="htab" id="htab-anuncios" onclick="navTo('anuncios')"><span class="htab-icon">◈</span>Anúncios</button>
+  </nav>
+
+  <!-- Right: period + refresh -->
+  <div class="hdr-right">
+    <div class="presets" id="hdr-presets">
+      <button class="btn-pre" id="hpre-hoje" onclick="applyQuickCurrent('hoje')">Hoje</button>
+      <button class="btn-pre" id="hpre-ontem" onclick="applyQuickCurrent('ontem')">Ontem</button>
+      <button class="btn-pre" id="hpre-7d" onclick="applyQuickCurrent('7d')">7 dias</button>
+      <button class="btn-pre on" id="hpre-30d" onclick="applyQuickCurrent('30d')">30 dias</button>
+    </div>
+    <div class="drbox">
+      <span class="drbox-icon">📅</span>
+      <input type="date" id="hdr-start" onchange="onDCCurrent('s',this.value)"/>
+      <span class="drbox-sep">→</span>
+      <input type="date" id="hdr-end" onchange="onDCCurrent('e',this.value)"/>
+    </div>
+    <button class="btn-update" id="btn-update" onclick="loadData(true)">↻ Atualizar</button>
+  </div>
+</header>
+
+<!-- ─── Content ──────────────────────────────────────────────────── -->
+<div class="app-content">
+  <div class="sw" id="loading"><div class="sp"></div><p class="st">Carregando dados...</p></div>
+  <div id="page-principal"       class="page active"></div>
+  <div id="page-trafego"         class="page"></div>
+  <div id="page-anuncios"        class="page"></div>
+  <div id="page-funil"           class="page"></div>
+  <div id="page-geral-principal" class="page"></div>
+  <div id="page-geral-funil"     class="page"></div>
 </div>
 
 <script>
@@ -218,10 +239,10 @@ const METAS_T = {
   connect:  {val:85, higher:true},
 };
 
-// Chart color único para gráficos simples
-const CHART_COLOR = "#2d7d9a";
-const CHART_INV   = "#2d7d9a";
-const CHART_CPV   = "#a06000";
+// Chart colors — dark mode
+const CHART_COLOR = "#3b82f6";
+const CHART_INV   = "#3b82f6";
+const CHART_CPV   = "#fbbf24";
 
 // State
 const S = {
@@ -275,6 +296,120 @@ const S = {
   currentPage:"principal",
 };
 
+// ── Header period helpers ──────────────────────────────────────────────────
+// Retorna período atual da página ativa
+function getCurrentPeriod(){
+  const p=S.currentPage;
+  if(p==='trafego')      return {s:S.tStartDate, e:S.tEndDate, q:S.tActiveQuick};
+  if(p==='anuncios')     return {s:S.aStartDate, e:S.aEndDate, q:S.aActiveQuick};
+  if(p==='funil')        return {s:S.fStartDate, e:S.fEndDate, q:S.fActiveQuick};
+  if(p==='geral-principal') return {s:S.gStartDate, e:S.gEndDate, q:S.gActiveQuick};
+  if(p==='geral-funil')  return {s:S.gfStartDate, e:S.gfEndDate, q:S.gfActiveQuick};
+  return {s:S.startDate, e:S.endDate, q:S.activeQuick};
+}
+// Aplica quick ao período da página ativa
+function applyQuickCurrent(k){
+  const p=S.currentPage;
+  const t=todayISO();
+  const map={hoje:()=>({s:t,e:t}),ontem:()=>{const y=yesterdayISO();return{s:y,e:y}},
+    "7d":()=>({s:nDaysAgoISO(6),e:t}),"30d":()=>({s:nDaysAgoISO(29),e:t}),mes:()=>({s:firstOfMonthISO(),e:t})};
+  const r=map[k]?.();if(!r)return;
+  if(p==='trafego'){S.tStartDate=r.s;S.tEndDate=r.e;S.tActiveQuick=k;}
+  else if(p==='anuncios'){S.aStartDate=r.s;S.aEndDate=r.e;S.aActiveQuick=k;}
+  else if(p==='funil'){S.fStartDate=r.s;S.fEndDate=r.e;S.fActiveQuick=k;}
+  else if(p==='geral-principal'){S.gStartDate=r.s;S.gEndDate=r.e;S.gActiveQuick=k;}
+  else if(p==='geral-funil'){S.gfStartDate=r.s;S.gfEndDate=r.e;S.gfActiveQuick=k;}
+  else{S.startDate=r.s;S.endDate=r.e;S.activeQuick=k;}
+  render();
+}
+// Date custom input do header
+function onDCCurrent(w,v){
+  const p=S.currentPage;
+  if(p==='trafego'){if(w==='s')S.tStartDate=v;else S.tEndDate=v;S.tActiveQuick="";}
+  else if(p==='anuncios'){if(w==='s')S.aStartDate=v;else S.aEndDate=v;S.aActiveQuick="";}
+  else if(p==='funil'){if(w==='s')S.fStartDate=v;else S.fEndDate=v;S.fActiveQuick="";}
+  else if(p==='geral-principal'){if(w==='s')S.gStartDate=v;else S.gEndDate=v;S.gActiveQuick="";}
+  else if(p==='geral-funil'){if(w==='s')S.gfStartDate=v;else S.gfEndDate=v;S.gfActiveQuick="";}
+  else{if(w==='s')S.startDate=v;else S.endDate=v;S.activeQuick="";}
+  render();
+}
+// Abre/fecha dropdown de funil
+function toggleFunilMenu(e){
+  e.stopPropagation();
+  const m=document.getElementById("funil-menu");
+  m.style.display=m.style.display==="none"?"block":"none";
+}
+document.addEventListener("click",()=>{
+  const m=document.getElementById("funil-menu");
+  if(m) m.style.display="none";
+});
+// Seleciona funil via dropdown
+function selectFunil(id){
+  document.getElementById("funil-menu").style.display="none";
+  switchFunil(id);
+}
+// Atualiza visual do header
+function renderHeader(){
+  const p=S.currentPage;
+  const isGeral=S.currentFunil==="geral";
+  // Funil selector
+  const names={manual:"Manual Definitivo",mapa:"Mapa da Casa",geral:"Consolidado"};
+  const fn=document.getElementById("funil-name"); if(fn) fn.textContent=names[S.currentFunil]||"Manual Definitivo";
+  const fs=document.getElementById("funil-status"); if(fs) fs.textContent="ativo";
+  ["manual","mapa","geral"].forEach(f=>{
+    const el=document.getElementById("fopt-"+f);
+    if(el) el.classList.toggle("fopt-active",f===S.currentFunil);
+  });
+  // Tabs visibility
+  const tabsEl=document.getElementById("hdr-tabs"); if(!tabsEl) return;
+  const TABS_FUNIL=[{id:"principal",label:"⊞ Principal"},{id:"trafego",label:"⟳ Métricas tráfego"},{id:"funil",label:"▽ Métricas do funil"},{id:"anuncios",label:"◈ Anúncios"}];
+  const TABS_GERAL=[{id:"geral-principal",label:"⊞ Principal"},{id:"geral-funil",label:"▽ Métricas do funil"}];
+  const tabs=isGeral?TABS_GERAL:TABS_FUNIL;
+  tabsEl.innerHTML=tabs.map(t=>`<button class="htab${p===t.id?" htab-active":""}" onclick="navTo('${t.id}')">${t.label}</button>`).join("");
+  // Period presets
+  const per=getCurrentPeriod();
+  const QUICKS=["hoje","ontem","7d","30d"];
+  // Funil pages have an extra "Todos" option
+  const isFunilPage=(p==="funil"||p==="geral-funil");
+  const preEl=document.getElementById("hdr-presets"); if(!preEl) return;
+  let presetsHtml=QUICKS.map(k=>`<button class="btn-pre${per.q===k?" on":""}" onclick="applyQuickCurrent('${k}')">${k==="hoje"?"Hoje":k==="ontem"?"Ontem":k==="7d"?"7 dias":"30 dias"}</button>`).join("");
+  if(isFunilPage) presetsHtml=`<button class="btn-pre${(!per.q||per.q==="all")?" on":""}" onclick="applyQuickCurrentAll()">Todos</button>`+presetsHtml;
+  preEl.innerHTML=presetsHtml;
+  // Date inputs
+  const hs=document.getElementById("hdr-start"); if(hs) hs.value=per.s||"";
+  const he=document.getElementById("hdr-end");   if(he) he.value=per.e||"";
+  // Refresh button
+  const bu=document.getElementById("btn-update");
+  if(bu){bu.textContent=S.loading?"↻ Carregando...":"↻ Atualizar";bu.disabled=S.loading;}
+}
+function applyQuickCurrentAll(){
+  const p=S.currentPage;
+  if(p==='funil'){S.fStartDate="";S.fEndDate="";S.fActiveQuick="all";}
+  else if(p==='geral-funil'){S.gfStartDate="";S.gfEndDate="";S.gfActiveQuick="all";}
+  render();
+}
+// Top-level versions of funilQuick (usadas no header)
+function applyFunilQuick(k){
+  S.fActiveQuick=k;const t=todayISO();
+  if(k==="all"){S.fStartDate="";S.fEndDate="";}
+  else if(k==="hoje"){S.fStartDate=t;S.fEndDate=t;}
+  else if(k==="ontem"){const y=yesterdayISO();S.fStartDate=y;S.fEndDate=y;}
+  else if(k==="7d"){S.fStartDate=nDaysAgoISO(6);S.fEndDate=t;}
+  else if(k==="30d"){S.fStartDate=nDaysAgoISO(29);S.fEndDate=t;}
+  else if(k==="mes"){S.fStartDate=firstOfMonthISO();S.fEndDate=t;}
+  renderFunil();
+}
+function applyGeralFunilQuick(k){
+  S.gfActiveQuick=k;const t=todayISO();
+  if(k==="all"){S.gfStartDate="";S.gfEndDate="";}
+  else if(k==="hoje"){S.gfStartDate=t;S.gfEndDate=t;}
+  else if(k==="ontem"){const y=yesterdayISO();S.gfStartDate=y;S.gfEndDate=y;}
+  else if(k==="7d"){S.gfStartDate=nDaysAgoISO(6);S.gfEndDate=t;}
+  else if(k==="30d"){S.gfStartDate=nDaysAgoISO(29);S.gfEndDate=t;}
+  else if(k==="mes"){S.gfStartDate=firstOfMonthISO();S.gfEndDate=t;}
+  renderGeralFunil();
+}
+
 // ── Date helpers (GMT-3 São Paulo) ─────────────────────────────────────────
 function nowSP(){ return new Date(Date.now()-3*60*60*1000); }
 function toISODate(d){ return d.toISOString().split("T")[0]; }
@@ -318,12 +453,20 @@ function fDate(iso){ if(!iso)return"";const[,m,d]=iso.split("-");return `${d}/${
 function fDateBR(iso){ if(!iso)return"";const[y,m,d]=iso.split("-");return `${d}/${m}/${y}`; }
 function parseSheet(json){ const rows=json.values||[];if(rows.length<2)return[];const h=rows[0];return rows.slice(1).map(r=>Object.fromEntries(h.map((k,i)=>[k,(r[i]||"").trim()]))); }
 
-// Status color
+// Status color — dark mode semantics
 function statusColor(val,meta,higherIsBetter){
-  if(!val||val===0)return "#1c1410";
+  if(!val||val===0)return "#8a96ab";
   const ratio=val/meta;
-  if(higherIsBetter){ if(ratio>=1)return "#1a7a4a";if(ratio>=0.9)return "#c07800";return "#b91c1c"; }
-  else { if(ratio<=1)return "#1a7a4a";if(ratio<=1.1)return "#c07800";return "#b91c1c"; }
+  if(higherIsBetter){ if(ratio>=1)return "#34d399";if(ratio>=0.9)return "#fbbf24";return "#f87171"; }
+  else { if(ratio<=1)return "#34d399";if(ratio<=1.1)return "#fbbf24";return "#f87171"; }
+}
+// Card border color from status color
+function statusBorder(val,meta,higherIsBetter){
+  const c=statusColor(val,meta,higherIsBetter);
+  if(c==="#34d399") return "rgba(52,211,153,.22)";
+  if(c==="#fbbf24") return "rgba(251,191,36,.22)";
+  if(c==="#f87171") return "rgba(248,113,113,.22)";
+  return "var(--border)";
 }
 
 // ── Ad ID / advCode helpers ───────────────────────────────────────────────
@@ -930,27 +1073,6 @@ function getDayMetrics(iso){
 function switchFunil(id){
   S.currentFunil=id;
   const isGeral=id==='geral';
-  // Atualiza visual das tabs
-  document.querySelectorAll('.master-tab').forEach((t,i)=>{
-    const isActive=(i===0&&id==='manual')||(i===1&&id==='mapa')||(i===2&&id==='geral');
-    t.classList.toggle('mt-active', isActive);
-    t.classList.toggle('mt-inactive', !isActive);
-    t.style.pointerEvents='';
-    t.style.opacity='';
-    // Atualiza sub-label de cada tab
-    const sub=t.querySelector('[id^="mt-"]');
-    if(sub) sub.textContent=isActive?'ativo':'';
-    const dot=t.querySelector('.mt-dot');
-    if(dot) dot.style.background=isActive?'#e8621a':'#3a2a1e';
-    const name=t.querySelector('.master-tab-name');
-    if(name) name.style.color=isActive?'#e8621a':'#5a4838';
-  });
-  // Mostra/oculta nav por grupo
-  document.querySelectorAll('.nav-funil').forEach(el=>el.style.display=isGeral?'none':'');
-  document.querySelectorAll('.nav-geral').forEach(el=>el.style.display=isGeral?'':'none');
-  // Label do sub-nav
-  const lbl=id==='mapa'?'Mapa da Casa':id==='geral'?'Consolidado':'Manual Definitivo';
-  document.getElementById('subnav-lbl').textContent=lbl;
   S.anaTempoProd1=id==='mapa'?'mapa':'manual';
   S.anaTempoProd2='curso';
   // Navega para a página padrão do funil
@@ -964,9 +1086,7 @@ function switchFunil(id){
 
 function navTo(page){
   S.currentPage=page;
-  document.querySelectorAll(".nav-item:not(.disabled)").forEach(el=>{
-    el.classList.toggle("active", el.getAttribute("onclick")?.includes(page));
-  });
+  window.scrollTo(0,0);
   document.querySelectorAll(".page").forEach(el=>{
     el.classList.toggle("active", el.id==="page-"+page);
   });
@@ -1004,8 +1124,8 @@ function toggleOverlay(key,which){
 
 // ── Canvas drawing ─────────────────────────────────────────────────────────
 const DPR=window.devicePixelRatio||1;
-const GRID_C="rgba(235,229,220,0.8)";
-const TICK_C="#a0917e";
+const GRID_C="rgba(255,255,255,0.06)";
+const TICK_C="#6b7689";
 
 function initCanvas(id,cssW,cssH){
   const c=document.getElementById(id);if(!c)return null;
@@ -1178,19 +1298,20 @@ function periodBar(start,end,active,prefix){
   </div>`;
 }
 
-function kpiCard(lbl,val,sub,color,small=false){
-  return `<div class="kc">
+function kpiCard(lbl,val,sub,color,small=false,meta=null,higherIsBetter=null){
+  const bord=(meta!==null&&higherIsBetter!==null)?statusBorder(parseFloat(String(val).replace(/[^\d.,-]/g,"")||"0"),meta,higherIsBetter):"var(--border)";
+  return `<div class="kc" style="border-color:${bord}">
     <div class="kc-lbl">${lbl}</div>
-    <div class="kc-val${small?" kc-val-sm":""}" style="color:${color}">${val}</div>
+    <div class="kc-val${small?" kc-val-sm":""}" style="color:${color||"var(--text-strong)"}">${val}</div>
     ${sub?`<div class="kc-sub">${sub}</div>`:""}
   </div>`;
 }
 
 function statusLegend(){
   return `<div class="status-legend">
-    <span class="sl"><span class="sl-dot" style="background:#1a7a4a"></span>Dentro da meta</span>
-    <span class="sl"><span class="sl-dot" style="background:#c07800"></span>Até 10% fora</span>
-    <span class="sl"><span class="sl-dot" style="background:#b91c1c"></span>Mais de 10% fora</span>
+    <span class="sl"><span class="sl-dot" style="background:#34d399"></span>Dentro da meta</span>
+    <span class="sl"><span class="sl-dot" style="background:#fbbf24"></span>Até 10% fora</span>
+    <span class="sl"><span class="sl-dot" style="background:#f87171"></span>Mais de 10% fora</span>
   </div>`;
 }
 
@@ -1202,29 +1323,25 @@ function renderPrincipal(){
   const roasC=statusColor(tot.roas,META_ROAS,true);
   const cpvC=statusColor(tot.cpv,META_CPV,false);
   const ticketC=statusColor(tot.ticket,META_TICKET,true);
-  const lucroC=tot.lucro>=0?"#1a7a4a":"#b91c1c";
+  const lucroC=tot.lucro>=0?"#34d399":"#f87171";
 
   el.innerHTML=`
-    <div class="hdr">
+    <div class="hdr" style="margin-bottom:6px">
       <div>
         <div class="hdr-title">${S.currentFunil==="mapa"?"Mapa da Casa Própria com Zero Entrada":"Manual Definitivo para Construção e Venda de Casas Financiadas"}</div>
         <div class="hdr-sub">atualizado em: ${D().updated||"—"}${daily.length>0?` · ${daily.length} dias`:""}</div>
       </div>
-      <button class="btn-refresh" onclick="loadData(true)" ${S.loading?"disabled":""}>${S.loading?"Carregando...":"↻ Atualizar"}</button>
+      <div style="display:flex;align-items:center;gap:16px">${statusLegend()}</div>
     </div>
     ${S.error?`<div class="err">⚠️ ${S.error}</div>`:""}
-    ${periodBar(S.startDate,S.endDate,S.activeQuick,"")}
-    <div class="g3" style="margin-bottom:12px">
-      ${kpiCard("Investimento",fBRL(tot.spend),`${tot.vendas} vendas · ${daily.length} dias`,"#1c1410")}
-      ${kpiCard("ROAS",tot.roas.toFixed(2)+"x",`Meta: ${META_ROAS.toFixed(2)}x`,roasC)}
-      ${kpiCard("Faturamento",fBRL(tot.faturamento),"","#1c1410")}
+    <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:13px;margin-bottom:16px">
+      ${kpiCard("Investimento",fBRL(tot.spend),`${tot.vendas} vendas · ${daily.length} dias`,"var(--text-strong)")}
+      ${kpiCard("ROAS",tot.roas.toFixed(2)+"x",`▼ meta ${META_ROAS.toFixed(2)}x`,roasC,false,tot.roas,true)}
+      ${kpiCard("Faturamento",fBRL(tot.faturamento),"todos os produtos","var(--text-strong)")}
+      ${kpiCard("Custo por Venda",fBRL(tot.cpv),`▼ meta ${fBRL(META_CPV)}`,cpvC,false,tot.cpv,false)}
+      ${kpiCard("Ticket Médio",fBRL(tot.ticket),`▲ meta ${fBRL(META_TICKET)}`,ticketC,false,tot.ticket,true)}
+      ${kpiCard("Lucro Bruto",fBRL(tot.lucro),`margem ${tot.faturamento>0?((tot.lucro/tot.faturamento)*100).toFixed(1):"0"}%`,lucroC)}
     </div>
-    <div class="g3" style="margin-bottom:18px">
-      ${kpiCard("Custo por Venda",fBRL(tot.cpv),`Meta: ${fBRL(META_CPV)}`,cpvC)}
-      ${kpiCard("Ticket Médio",fBRL(tot.ticket),`Meta: ${fBRL(META_TICKET)}`,ticketC)}
-      ${kpiCard("Lucro Bruto",fBRL(tot.lucro),"",lucroC)}
-    </div>
-    ${statusLegend()}
     <div class="cc" style="margin-bottom:12px;position:relative">
       <div class="ch">
         <span class="ct">Investimento × Custo por Venda</span>
@@ -1310,9 +1427,10 @@ function renderTrafego(){
   function metricsRow(dataObj){
     return METRICS.map(m=>{
       const rawVal=dataObj[m.key]||0;
-      const color=m.meta?statusColor(rawVal,m.meta,m.higher):"#1c1410";
-      return `<div class="kc" style="padding:12px 14px">
-        <div class="kc-lbl" style="font-size:8.5px">${m.lbl}</div>
+      const color=m.meta?statusColor(rawVal,m.meta,m.higher):"var(--text-strong)";
+      const bord=m.meta?statusBorder(rawVal,m.meta,m.higher):"var(--border)";
+      return `<div class="kc" style="padding:12px 14px;border-color:${bord}">
+        <div class="kc-lbl">${m.lbl}</div>
         <div class="kc-val" style="color:${color};font-size:17px">${m.fmt(rawVal)}</div>
         ${m.meta?`<div class="kc-sub">${metaSub(m)}</div>`:""}
       </div>`;
@@ -1327,7 +1445,7 @@ function renderTrafego(){
       onclick="toggleOverlay('${key}','${which}')">${label}</button>`;
   }
 
-  // Gráficos em coluna única (full width)
+  // Gráficos em grade 2×3
   const CHART_CONFIGS=[
     {key:"ctr",      lbl:"CTR",                    fmt:fPct, meta:METAS_T.ctr.val,        metaLbl:"Meta 1,35%"},
     {key:"cpm",      lbl:"CPM",                    fmt:fBRL, meta:METAS_T.cpm.val,        metaLbl:"Meta R$18,00"},
@@ -1338,12 +1456,13 @@ function renderTrafego(){
   ];
 
   function tChart(c){
-    return `<div class="cc" style="margin-bottom:12px;position:relative">
+    return `<div class="cc" style="position:relative">
       <div class="ch">
         <span class="ct">${c.lbl}</span>
-        <div class="lg">
+        <div style="display:flex;align-items:center;gap:12px">
+          <span style="font-size:10px;color:var(--hint)">${c.metaLbl}</span>
           <div class="overlay-btns">
-            ${overlayBtn(c.key,"inv","+ Investimento")}
+            ${overlayBtn(c.key,"inv","+ Invest.")}
             ${overlayBtn(c.key,"cpv","+ CPV")}
           </div>
         </div>
@@ -1356,37 +1475,35 @@ function renderTrafego(){
   }
 
   el.innerHTML=`
-    <div class="hdr">
+    <div class="hdr" style="margin-bottom:6px">
       <div>
         <div class="hdr-title">Métricas de Tráfego</div>
         <div class="hdr-sub">atualizado em: ${D().updated||"—"}</div>
       </div>
-      <button class="btn-refresh" onclick="loadData(true)" ${S.loading?"disabled":""}>${S.loading?"Carregando...":"↻ Atualizar"}</button>
+      <div>${statusLegend()}</div>
     </div>
     ${S.error?`<div class="err">⚠️ ${S.error}</div>`:""}
 
     <div class="section-lbl">Hoje — ${fDateBR(today)}</div>
-    <div style="display:grid;grid-template-columns:repeat(8,1fr);gap:10px;margin-bottom:18px">
+    <div style="display:grid;grid-template-columns:repeat(8,1fr);gap:10px;margin-bottom:16px">
       ${metricsRow(todayM)}
     </div>
 
-    ${statusLegend()}
-
-    <div class="section-lbl" style="margin-top:4px">Últimos 3 dias — ${fDateBR(p3Start)} a ${fDateBR(p3End)}</div>
-    <div style="display:grid;grid-template-columns:repeat(8,1fr);gap:10px;margin-bottom:24px">
+    <div class="section-lbl">Últimos 3 dias — ${fDateBR(p3Start)} a ${fDateBR(p3End)}</div>
+    <div style="display:grid;grid-template-columns:repeat(8,1fr);gap:10px;margin-bottom:20px">
       ${metricsRow(p3Tot)}
     </div>
 
-    ${periodBar(S.tStartDate,S.tEndDate,S.tActiveQuick,"t")}
-
-    ${CHART_CONFIGS.map(c=>tChart(c)).join("")}
+    <div class="charts-2x3">
+      ${CHART_CONFIGS.map(c=>tChart(c)).join("")}
+    </div>
     <p class="foot">Base Meta (Stract) + Base Vendas (Eduzz) · Google Sheets API v4</p>`;
 
   requestAnimationFrame(()=>{
-    const fullW=document.getElementById(`tc-${CHART_CONFIGS[0].key}`)?.parentElement?.offsetWidth||700;
+    const sW=document.getElementById(`tc-${CHART_CONFIGS[0].key}`)?.parentElement?.offsetWidth||500;
     CHART_CONFIGS.forEach(c=>{
       const ov=S.overlays[c.key];
-      drawChartWithOverlay(`tc-${c.key}`,daily,c.key,c.fmt,c.meta,c.metaLbl,ov.inv,ov.cpv,fullW,180);
+      drawChartWithOverlay(`tc-${c.key}`,daily,c.key,c.fmt,c.meta,c.metaLbl,ov.inv,ov.cpv,sW,170);
       const tipLines=[{key:c.key,color:CHART_COLOR,name:c.lbl,fmt:c.fmt}];
       if(ov.inv) tipLines.push({key:"spend",color:CHART_INV,name:"Investimento",fmt:fBRL});
       if(ov.cpv) tipLines.push({key:"cpv",  color:CHART_CPV,name:"CPV",         fmt:fBRL});
@@ -1404,6 +1521,43 @@ function renderAnuncios(){
   // cruzando pelo Ad ID
   function buildAdRows(start,end){
     const dd=D();
+    const currentFunil=S.currentFunil;
+    const principalId=currentFunil==="mapa"?"mapa":"manual";
+
+    // Passo A: buyer → adId (primeira compra do produto principal no período com Ad Id)
+    const buyerAdMap=new Map();   // buyerKey → adId
+    const adBuyersMap=new Map();  // adId → Set de buyerKeys
+    for(const r of dd.funilRows){
+      const dt=toISO(r["Data da compra"]||"")||"";
+      if(dt<start||dt>end) continue;
+      if((r["Status da compra"]||"").trim()!=="Paga") continue;
+      if(classifyProduct(r["Nome do produto"]||"",currentFunil)!==principalId) continue;
+      const adId=extractAdId(r["Ad Id"]||""); if(!adId) continue;
+      const em=(r["Email"]||"").toLowerCase().trim();
+      const cpf=(r["CPF Comprador"]||"").replace(/[^\d]/g,"");
+      const tel=(r["Telefone"]||"").replace(/[^\d]/g,"");
+      const key=em||cpf||tel; if(!key) continue;
+      if(!buyerAdMap.has(key)){
+        buyerAdMap.set(key,adId);
+        if(!adBuyersMap.has(adId)) adBuyersMap.set(adId,new Set());
+        adBuyersMap.get(adId).add(key);
+      }
+    }
+
+    // Passo B: buyer → totalGasto (todos os produtos Paga no período, sem duplicatas)
+    const buyerTotalSpent=new Map();
+    for(const r of S.geral.funilRows){
+      const dt=toISO(r["Data da compra"]||"")||"";
+      if(dt<start||dt>end) continue;
+      if((r["Status da compra"]||"").trim()!=="Paga") continue;
+      const em=(r["Email"]||"").toLowerCase().trim();
+      const cpf=(r["CPF Comprador"]||"").replace(/[^\d]/g,"");
+      const tel=(r["Telefone"]||"").replace(/[^\d]/g,"");
+      const key=em||cpf||tel; if(!key) continue;
+      const val=parseBRL(r["Valor do produto"]||"0");
+      buyerTotalSpent.set(key,(buyerTotalSpent.get(key)||0)+val);
+    }
+
     const rows=[];
     for(const [advCode,meta] of Object.entries(dd.metaByAd)){
       const byDate=dd.metaByAdByDate[advCode]||{};
@@ -1421,22 +1575,29 @@ function renderAnuncios(){
       let qtd=0,valor=0,taxa=0;
       const useIds=adIdsInPeriod.size>0?adIdsInPeriod:meta.adIds;
       for(const adId of useIds){
-        const byDate=dd.vendasByAdDate[adId]||{};
-        for(const [vd,vvals] of Object.entries(byDate)){
-          if(vd>=start && vd<=end){
-            qtd+=vvals.qtd; valor+=vvals.valor; taxa+=vvals.taxa;
-          }
+        const byD=dd.vendasByAdDate[adId]||{};
+        for(const [vd,vvals] of Object.entries(byD)){
+          if(vd>=start && vd<=end){ qtd+=vvals.qtd; valor+=vvals.valor; taxa+=vvals.taxa; }
         }
       }
       if(!igUrl) igUrl=meta.igUrl;
+
+      // Ticket Médio Ascensões: soma tudo que os compradores deste ad gastaram (todos os produtos)
+      let totalAscensoes=0;
+      for(const adId of useIds){
+        for(const buyerKey of (adBuyersMap.get(adId)||new Set())){
+          totalAscensoes+=(buyerTotalSpent.get(buyerKey)||0);
+        }
+      }
+
       const cpc=clicks>0?spend/clicks:0;
       const ctr=impressions>0?(clicks/impressions)*100:0;
       const cpm=impressions>0?(spend/impressions)*1000:0;
       const cpv=qtd>0?spend/qtd:0;
       const ticket=qtd>0?valor/qtd:0;
-      rows.push({advCode,spend,clicks,impressions,qtd,valor,cpc,ctr,cpm,cpv,ticket,igUrl});
+      const ticketAsc=qtd>0?totalAscensoes/qtd:0;
+      rows.push({advCode,spend,clicks,impressions,qtd,valor,cpc,ctr,cpm,cpv,ticket,ticketAsc,igUrl});
     }
-    // Filtra spend>0 e ordena
     return rows.filter(r=>r.spend>0);
   }
 
@@ -1461,6 +1622,7 @@ function renderAnuncios(){
   const totCpm=tot.impressions>0?(tot.spend/tot.impressions)*1000:0;
   const totCpv=tot.qtd>0?tot.spend/tot.qtd:0;
   const totTicket=tot.qtd>0?tot.valor/tot.qtd:0;
+  const totTicketAsc=rows.length>0&&tot.qtd>0?(rows.reduce((a,r)=>a+r.ticketAsc*r.qtd,0)/tot.qtd):0;
 
   // Ordenação
   const {col,dir}=S.aSort;
@@ -1473,67 +1635,71 @@ function renderAnuncios(){
   function thSort(c,lbl){
     const active=col===c;
     const arrow=active?(dir==="asc"?" ↑":" ↓"):" ↕";
-    return `<th onclick="sortAnuncios('${c}')" style="padding:10px 14px;text-align:center;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:${active?"#1c1410":"#7a6c5e"};cursor:pointer;user-select:none;border-bottom:1px solid var(--border);border-right:1px solid var(--border);white-space:nowrap">${lbl}<span style="color:${active?"#e8621a":"#d8cfc3"};font-size:10px;margin-left:3px">${arrow}</span></th>`;
+    return `<th onclick="sortAnuncios('${c}')" style="padding:10px 14px;text-align:center;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:${active?"var(--text-strong)":"#7a6c5e"};cursor:pointer;user-select:none;border-bottom:1px solid var(--border);border-right:1px solid var(--border);white-space:nowrap">${lbl}<span style="color:${active?"#e8621a":"#d8cfc3"};font-size:10px;margin-left:3px">${arrow}</span></th>`;
   }
 
   function sc(v,meta,hi){return statusColor(v,meta,hi);}
 
+  function thRow(c,lbl){
+    const active=col===c;
+    const arrow=active?(dir==="asc"?" ↑":" ↓"):" ↕";
+    return `<th onclick="sortAnuncios('${c}')" style="padding:10px 14px;text-align:right;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:${active?"var(--text)":"var(--hint)"};cursor:pointer;user-select:none;border-bottom:1px solid var(--border);white-space:nowrap">${lbl}<span style="color:${active?"#60a5fa":"var(--hint)"};font-size:9px;margin-left:3px">${arrow}</span></th>`;
+  }
+
   el.innerHTML=`
-    <div class="hdr">
+    <div class="hdr" style="margin-bottom:6px">
       <div>
         <div class="hdr-title">Anúncios</div>
         <div class="hdr-sub">atualizado em: ${D().updated||"—"} · ${sorted.length} anúncios</div>
       </div>
-      <button class="btn-refresh" onclick="loadData(true)" ${S.loading?"disabled":""}>${S.loading?"Carregando...":"↻ Atualizar"}</button>
+      <div>${statusLegend()}</div>
     </div>
     ${S.error?`<div class="err">⚠️ ${S.error}</div>`:""}
 
-    ${periodBar(S.aStartDate,S.aEndDate,S.aActiveQuick,"a")}
-
     <div class="section-lbl">Resumo do período</div>
-    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:10px;margin-bottom:20px">
-      <div class="kc"><div class="kc-lbl">Investimento</div><div class="kc-val" style="color:#1c1410;font-size:18px">${fBRL(tot.spend)}</div></div>
-      <div class="kc"><div class="kc-lbl">Vendas</div><div class="kc-val" style="color:#1c1410;font-size:18px">${tot.qtd}</div></div>
-      <div class="kc"><div class="kc-lbl">Custo por Venda</div><div class="kc-val" style="color:${sc(totCpv,META_CPV,false)};font-size:18px">${fBRL(totCpv)}</div><div class="kc-sub">Meta: ${fBRL(META_CPV)}</div></div>
-      <div class="kc"><div class="kc-lbl">Ticket Médio</div><div class="kc-val" style="color:${sc(totTicket,META_TICKET,true)};font-size:18px">${fBRL(totTicket)}</div><div class="kc-sub">Meta: ${fBRL(META_TICKET)}</div></div>
-      <div class="kc"><div class="kc-lbl">CTR</div><div class="kc-val" style="color:${sc(totCtr,METAS_T.ctr.val,true)};font-size:18px">${fPct(totCtr)}</div><div class="kc-sub">Meta: ${fPct(METAS_T.ctr.val)}</div></div>
-      <div class="kc"><div class="kc-lbl">CPM</div><div class="kc-val" style="color:${sc(totCpm,METAS_T.cpm.val,false)};font-size:18px">${fBRL(totCpm)}</div><div class="kc-sub">Meta: ${fBRL(METAS_T.cpm.val)}</div></div>
-      <div class="kc"><div class="kc-lbl">CPC</div><div class="kc-val" style="color:${sc(totCpc,METAS_T.cpc.val,false)};font-size:18px">${fBRL(totCpc)}</div><div class="kc-sub">Meta: ${fBRL(METAS_T.cpc.val)}</div></div>
+    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:13px;margin-bottom:20px">
+      <div class="kc"><div class="kc-lbl">Investimento</div><div class="kc-val" style="font-size:18px">${fBRL(tot.spend)}</div></div>
+      <div class="kc"><div class="kc-lbl">Vendas</div><div class="kc-val" style="font-size:18px">${tot.qtd}</div></div>
+      <div class="kc" style="border-color:${statusBorder(totCpv,META_CPV,false)}"><div class="kc-lbl">Custo por Venda</div><div class="kc-val" style="color:${sc(totCpv,META_CPV,false)};font-size:18px">${fBRL(totCpv)}</div><div class="kc-sub">meta ${fBRL(META_CPV)}</div></div>
+      <div class="kc" style="border-color:${statusBorder(totTicket,META_TICKET,true)}"><div class="kc-lbl">Ticket Médio Front</div><div class="kc-val" style="color:${sc(totTicket,META_TICKET,true)};font-size:18px">${fBRL(totTicket)}</div><div class="kc-sub">meta ${fBRL(META_TICKET)}</div></div>
+      <div class="kc"><div class="kc-lbl">Ticket Médio Ascensões</div><div class="kc-val" style="font-size:18px">${fBRL(totTicketAsc)}</div><div class="kc-sub">todos os produtos</div></div>
+      <div class="kc" style="border-color:${statusBorder(totCtr,METAS_T.ctr.val,true)}"><div class="kc-lbl">CTR</div><div class="kc-val" style="color:${sc(totCtr,METAS_T.ctr.val,true)};font-size:18px">${fPct(totCtr)}</div><div class="kc-sub">meta ${fPct(METAS_T.ctr.val)}</div></div>
+      <div class="kc" style="border-color:${statusBorder(totCpm,METAS_T.cpm.val,false)}"><div class="kc-lbl">CPM</div><div class="kc-val" style="color:${sc(totCpm,METAS_T.cpm.val,false)};font-size:18px">${fBRL(totCpm)}</div><div class="kc-sub">meta ${fBRL(METAS_T.cpm.val)}</div></div>
     </div>
 
-    ${statusLegend()}
-
     <div class="section-lbl">Anúncios com investimento no período</div>
-    <div style="background:var(--card);border:0.5px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:20px">
+    <div style="background:var(--card);border:1px solid var(--border);border-radius:14px;overflow:hidden;margin-bottom:20px">
       <table style="width:100%;border-collapse:collapse;font-size:11px">
         <thead>
-          <tr style="background:var(--bg)">
-            ${thSort("advCode","Anúncio")}
-            ${thSort("spend","Investimento")}
-            ${thSort("qtd","Vendas")}
-            ${thSort("cpv","Custo/Venda")}
-            ${thSort("ticket","Ticket Médio")}
-            ${thSort("ctr","CTR")}
-            ${thSort("cpm","CPM")}
-            ${thSort("cpc","CPC")}
-            <th style="padding:10px 12px;text-align:center;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#7a6c5e;border-bottom:1px solid var(--border);border-left:1px solid var(--border)"></th>
+          <tr>
+            <th style="padding:10px 14px;text-align:left;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--hint);border-bottom:1px solid var(--border)">Anúncio</th>
+            ${thRow("spend","Investimento")}
+            ${thRow("qtd","Vendas")}
+            ${thRow("cpv","Custo/Venda")}
+            ${thRow("ticket","Ticket Médio Front")}
+            ${thRow("ticketAsc","Ticket Médio Ascensões")}
+            ${thRow("ctr","CTR")}
+            ${thRow("cpm","CPM")}
+            ${thRow("cpc","CPC")}
+            <th style="padding:10px 12px;border-bottom:1px solid var(--border)"></th>
           </tr>
         </thead>
         <tbody>
           ${sorted.map((r,i)=>`
-          <tr style="border-bottom:1px solid var(--border);background:${i%2===0?"var(--card)":"var(--bg)"}">
-            <td style="padding:10px 14px;text-align:center;border-right:1px solid var(--border)">
-              <span style="background:#f3f1ed;border:0.5px solid var(--border-h);border-radius:5px;padding:2px 8px;font-size:10px;font-weight:600;color:#1c1410;font-family:'DM Mono',monospace">${r.advCode}</span>
+          <tr style="border-bottom:1px solid var(--border);transition:background .1s" onmouseover="this.style.background='rgba(255,255,255,.025)'" onmouseout="this.style.background='transparent'">
+            <td style="padding:10px 14px;text-align:left">
+              <span style="background:var(--surf);border:1px solid var(--border-h);border-radius:6px;padding:2px 9px;font-size:10px;font-weight:600;color:var(--text);font-family:'JetBrains Mono',monospace">${r.advCode}</span>
             </td>
-            <td style="padding:10px 14px;text-align:center;color:#1c1410;border-right:1px solid var(--border)">${fBRL(r.spend)}</td>
-            <td style="padding:10px 14px;text-align:center;color:#1c1410;border-right:1px solid var(--border)">${r.qtd}</td>
-            <td style="padding:10px 14px;text-align:center;color:${sc(r.cpv,META_CPV,false)};font-weight:500;border-right:1px solid var(--border)">${r.qtd>0?fBRL(r.cpv):"—"}</td>
-            <td style="padding:10px 14px;text-align:center;color:${sc(r.ticket,META_TICKET,true)};font-weight:500;border-right:1px solid var(--border)">${r.qtd>0?fBRL(r.ticket):"—"}</td>
-            <td style="padding:10px 14px;text-align:center;color:${sc(r.ctr,METAS_T.ctr.val,true)};font-weight:500;border-right:1px solid var(--border)">${fPct(r.ctr)}</td>
-            <td style="padding:10px 14px;text-align:center;color:${sc(r.cpm,METAS_T.cpm.val,false)};font-weight:500;border-right:1px solid var(--border)">${fBRL(r.cpm)}</td>
-            <td style="padding:10px 14px;text-align:center;color:${sc(r.cpc,METAS_T.cpc.val,false)};font-weight:500;border-right:1px solid var(--border)">${fBRL(r.cpc)}</td>
-            <td style="padding:10px 14px;text-align:center;border-left:1px solid var(--border)">
-              ${r.igUrl?`<a href="${r.igUrl}" target="_blank" style="display:inline-flex;align-items:center;gap:3px;background:transparent;border:0.5px solid var(--border-h);color:var(--muted);padding:4px 9px;border-radius:5px;font-size:10px;text-decoration:none;white-space:nowrap">Ver ↗</a>`:"—"}
+            <td style="padding:10px 14px;text-align:right;font-family:'JetBrains Mono',monospace;color:var(--text)">${fBRL(r.spend)}</td>
+            <td style="padding:10px 14px;text-align:right;font-family:'JetBrains Mono',monospace;color:var(--text)">${r.qtd}</td>
+            <td style="padding:10px 14px;text-align:right;font-family:'JetBrains Mono',monospace;color:${sc(r.cpv,META_CPV,false)};font-weight:600">${r.qtd>0?fBRL(r.cpv):"—"}</td>
+            <td style="padding:10px 14px;text-align:right;font-family:'JetBrains Mono',monospace;color:${sc(r.ticket,META_TICKET,true)};font-weight:600">${r.qtd>0?fBRL(r.ticket):"—"}</td>
+            <td style="padding:10px 14px;text-align:right;font-family:'JetBrains Mono',monospace;color:var(--text)">${r.qtd>0?fBRL(r.ticketAsc):"—"}</td>
+            <td style="padding:10px 14px;text-align:right;font-family:'JetBrains Mono',monospace;color:${sc(r.ctr,METAS_T.ctr.val,true)};font-weight:600">${fPct(r.ctr)}</td>
+            <td style="padding:10px 14px;text-align:right;font-family:'JetBrains Mono',monospace;color:${sc(r.cpm,METAS_T.cpm.val,false)};font-weight:600">${fBRL(r.cpm)}</td>
+            <td style="padding:10px 14px;text-align:right;font-family:'JetBrains Mono',monospace;color:${sc(r.cpc,METAS_T.cpc.val,false)};font-weight:600">${fBRL(r.cpc)}</td>
+            <td style="padding:8px 12px;text-align:center">
+              ${r.igUrl?`<a href="${r.igUrl}" target="_blank" style="display:inline-flex;align-items:center;gap:3px;background:var(--surf);border:1px solid var(--border-h);color:var(--muted);padding:4px 9px;border-radius:7px;font-size:10px;text-decoration:none;white-space:nowrap;font-weight:500">Ver ↗</a>`:"—"}
             </td>
           </tr>`).join("")}
         </tbody>
@@ -2042,37 +2208,66 @@ function buildGeralData(rows, start, end){
 // ── Funil barras helper ────────────────────────────────────────────────────
 function funilBarras(counts,fat,pct){
   const CORES={
-    manual:      "#185FA5", checklist:    "#3B6D11", planFin:  "#0F6E56",
-    planLucro:   "#854F0B", curso:        "#993C1D",
-    mapa:        "#185FA5", guiaCaixa:    "#0F6E56",
+    manual:"#3b82f6",checklist:"#34d399",planFin:"#2dd4bf",
+    planLucro:"#fbbf24",curso:"#f87171",
+    mapa:"#60a5fa",guiaCaixa:"#2dd4bf",
   };
   const steps=getFunilSteps().map(s=>({...s,color:CORES[s.id]||"#555"}));
   return steps.map(function(s){
     var p=pct(s.id);
     var barW=Math.max(p,0.5);
     var innerLabel=barW>8
-      ? '<span style="font-size:11px;font-weight:500;color:#fff;white-space:nowrap">'+p.toFixed(1)+'%</span>'
+      ? '<span style="font-size:11px;font-weight:600;color:#fff;white-space:nowrap">'+p.toFixed(1)+'%</span>'
       : '';
     var outerLabel=barW<=8
-      ? '<span style="position:absolute;left:8px;top:50%;transform:translateY(-50%);font-size:10px;font-weight:600;color:'+s.color+'">'+p.toFixed(1)+'%</span>'
+      ? '<span style="position:absolute;left:calc('+barW+'% + 6px);top:50%;transform:translateY(-50%);font-size:10px;font-weight:600;color:var(--text);white-space:nowrap">'+p.toFixed(1)+'%</span>'
       : '';
     return '<div style="display:flex;align-items:center;gap:12px">'
-      +'<div style="width:160px;flex-shrink:0">'
+      +'<div style="width:148px;flex-shrink:0">'
         +'<div style="font-size:11px;font-weight:600;color:var(--text)">'+s.label+'</div>'
         +'<div style="font-size:9px;color:var(--hint);margin-top:1px">'+s.step+'</div>'
       +'</div>'
-      +'<div style="flex:1;height:30px;background:var(--bg);border-radius:5px;overflow:hidden;position:relative;border:0.5px solid var(--border)">'
-        +'<div style="height:100%;width:'+barW+'%;background:'+s.color+';border-radius:5px;display:flex;align-items:center;padding-left:8px;min-width:2px">'
+      +'<div style="flex:1;height:28px;background:rgba(255,255,255,.05);border-radius:5px;overflow:visible;position:relative;border:1px solid var(--border)">'
+        +'<div style="height:100%;width:'+barW+'%;background:'+s.color+';border-radius:4px;display:flex;align-items:center;padding-left:8px;min-width:2px;opacity:.85">'
           +innerLabel
         +'</div>'
         +outerLabel
       +'</div>'
-      +'<div style="width:90px;flex-shrink:0;text-align:right">'
-        +'<div style="font-size:13px;font-weight:500;color:var(--text)">'+(counts[s.id]||0).toLocaleString("pt-BR")+'</div>'
-        +'<div style="font-size:10px;color:var(--hint)">'+fBRLShort(fat[s.id]||0)+'</div>'
+      +'<div style="width:78px;flex-shrink:0;text-align:right">'
+        +'<div style="font-size:13px;font-weight:600;color:var(--text);font-family:\'JetBrains Mono\',monospace">'+(counts[s.id]||0).toLocaleString("pt-BR")+'</div>'
+        +'<div style="font-size:10px;color:var(--hint);font-family:\'JetBrains Mono\',monospace">'+fBRLShort(fat[s.id]||0)+'</div>'
       +'</div>'
     +'</div>';
   }).join("");
+}
+
+// ── Funil Pyramid ─────────────────────────────────────────────────────────
+function funilPyramid(counts, manualCount, funil){
+  const f=funil||S.currentFunil;
+  const primaryKey=f==="mapa"?"mapa":"manual";
+  const primaryCount=counts[primaryKey]||0;
+  const obCount=(counts["checklist"]||0)+(f==="mapa"?(counts["guiaCaixa"]||0):(counts["planFin"]||0));
+  const upsellCount=counts["planLucro"]||0;
+  const ascCount=counts["curso"]||0;
+  const N=manualCount||1;
+  const levels=[
+    {label:"Compra do produto principal",count:primaryCount,pct:100,
+     grad:"linear-gradient(135deg,#2dd4bf,#14b8a6)",tc:"#06241f",clip:"0 0,100% 0,90% 100%,10% 100%"},
+    {label:"Order bumps",count:obCount,pct:(obCount/N)*100,
+     grad:"linear-gradient(135deg,#60a5fa,#2563eb)",tc:"#fff",clip:"10% 0,90% 0,77% 100%,23% 100%"},
+    {label:"Upsell",count:upsellCount,pct:(upsellCount/N)*100,
+     grad:"linear-gradient(135deg,#a78bfa,#7c3aed)",tc:"#fff",clip:"23% 0,77% 0,63% 100%,37% 100%"},
+    {label:"Ascensão",count:ascCount,pct:(ascCount/N)*100,
+     grad:"linear-gradient(135deg,#fbbf24,#f59e0b)",tc:"#1c0900",clip:"37% 0,63% 0,52% 100%,48% 100%"},
+  ];
+  return `<div style="display:flex;flex-direction:column;gap:5px">
+    ${levels.map(l=>`
+      <div style="position:relative;height:60px;clip-path:polygon(${l.clip});background:${l.grad};display:flex;align-items:center;justify-content:center;flex-direction:column">
+        <div style="font-size:11px;font-weight:600;color:${l.tc};text-align:center;white-space:nowrap;text-shadow:0 1px 3px rgba(0,0,0,.25)">${l.label}</div>
+        <div style="font-size:10px;color:${l.tc};opacity:.85;text-align:center;font-family:'JetBrains Mono',monospace">${l.count.toLocaleString("pt-BR")} · ${l.pct.toFixed(1)}%</div>
+      </div>
+    `).join("")}
+  </div>`;
 }
 
 // ── Render Funil ────────────────────────────────────────────────────────────
@@ -2085,21 +2280,6 @@ function renderFunil(){
   const primaryKey = S.currentFunil==="mapa" ? "mapa" : "manual";
   const {counts,fat,manualCount,totalFat,totalSpend,roas,ltv,lucro,taxaAscensao,statusCounts,statusVals} = fd;
 
-  const QS=[{k:"all",l:"Todos"},{k:"hoje",l:"Hoje"},{k:"ontem",l:"Ontem"},{k:"7d",l:"7 dias"},{k:"30d",l:"30 dias"},{k:"mes",l:"Este mês"}];
-
-  function applyFunilQuick(k){
-    S.fActiveQuick=k;
-    const t=todayISO();
-    if(k==="all")     {S.fStartDate="";S.fEndDate="";}
-    else if(k==="hoje") {S.fStartDate=t;S.fEndDate=t;}
-    else if(k==="ontem"){const y=yesterdayISO();S.fStartDate=y;S.fEndDate=y;}
-    else if(k==="7d")   {S.fStartDate=nDaysAgoISO(6);S.fEndDate=t;}
-    else if(k==="30d")  {S.fStartDate=nDaysAgoISO(29);S.fEndDate=t;}
-    else if(k==="mes")  {S.fStartDate=firstOfMonthISO();S.fEndDate=t;}
-    renderFunil();
-  }
-  window.applyFunilQuick=applyFunilQuick;
-
   function onFunilDC(w,v){
     if(w==="s")S.fStartDate=v;else S.fEndDate=v;
     S.fActiveQuick="";renderFunil();
@@ -2109,24 +2289,8 @@ function renderFunil(){
   // proporcional às conversões do manual
   function pct(id){ return manualCount>0?((counts[id]||0)/manualCount)*100:0; }
 
-  // cores por etapa
-  const COLORS={
-    manual:   {fill:"#185FA5",text:"#E6F1FB",sub:"#85B7EB"},
-    checklist:{fill:"#3B6D11",text:"#EAF3DE",sub:"#9FE1CB"},
-    planFin:  {fill:"#0F6E56",text:"#E1F5EE",sub:"#9FE1CB"},
-    planLucro:{fill:"#854F0B",text:"#FAEEDA",sub:"#FAC775"},
-    curso:    {fill:"#993C1D",text:"#FAECE7",sub:"#F5C4B3"},
-  };
-
-  // Barra de progresso interna
-  function bar(id,xLeft,y,barW,color){
-    const p=pct(id)/100;
-    return `<rect x="${xLeft}" y="${y}" width="${barW}" height="4" rx="2" fill="white" opacity="0.15"/>
-            <rect x="${xLeft}" y="${y}" width="${Math.round(barW*p)}" height="4" rx="2" fill="white" opacity="0.55"/>`;
-  }
-
   const roasC=statusColor(roas,META_ROAS,true);
-  const lucroC=lucro>=0?"#1a7a4a":"#b91c1c";
+  const lucroC=lucro>=0?"#34d399":"#f87171";
 
   // Status perdas
   const qtdReemb=(statusCounts["Reembolsado"]||0)+(statusCounts["Aguardando Reembolso"]||0);
@@ -2140,96 +2304,87 @@ function renderFunil(){
   const pctAbrt =totalFat>0?(valAbrt/totalFat)*100:0;
 
   el.innerHTML=`
-    <div class="hdr">
+    <div class="hdr" style="margin-bottom:6px">
       <div>
-        <div class="hdr-title">Métricas do funil</div>
-        <div class="hdr-sub">atualizado em: ${_dd.updated||"—"} · base: ${manualCount} compradores do ${S.currentFunil==="mapa"?"Mapa":"Manual"}</div>
+        <div class="hdr-title">Métricas do Funil</div>
+        <div class="hdr-sub">atualizado em: ${_dd.updated||"—"} · base: ${manualCount.toLocaleString("pt-BR")} compradores do ${S.currentFunil==="mapa"?"Mapa":"Manual"}</div>
       </div>
-      <button class="btn-refresh" onclick="loadData(true)" ${S.loading?"disabled":""}>${S.loading?"Carregando...":"↻ Atualizar"}</button>
     </div>
     ${S.error?`<div class="err">⚠️ ${S.error}</div>`:""}
 
-    <div class="period-wrap">
-      <div class="period-top">
-        <span class="period-lbl">Período</span>
-        <div class="drbox">
-          <span class="drbox-icon">📅</span>
-          <input type="date" value="${S.fStartDate}" onchange="onFunilDC('s',this.value)"/>
-          <span class="drbox-sep">—</span>
-          <input type="date" value="${S.fEndDate}" onchange="onFunilDC('e',this.value)"/>
-        </div>
-      </div>
-      <div class="period-quick">
-        ${QS.map(q=>`<button class="btn-q${(S.fActiveQuick||"all")===q.k?" on":""}" onclick="applyFunilQuick('${q.k}')">${q.l}</button>`).join("")}
-      </div>
-    </div>
-
     <!-- KPIs -->
-    <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:20px">
-      <div class="kc"><div class="kc-lbl">Investimento</div><div class="kc-val" style="color:#1c1410;font-size:17px">${fBRL(totalSpend)}</div><div class="kc-sub">Meta Ads</div></div>
-      <div class="kc"><div class="kc-lbl">Faturamento total</div><div class="kc-val" style="color:#1c1410;font-size:17px">${fBRL(totalFat)}</div><div class="kc-sub">todos os produtos</div></div>
-      <div class="kc"><div class="kc-lbl">ROAS funil</div><div class="kc-val" style="color:${roasC};font-size:17px">${roas.toFixed(2)}x</div></div>
-      <div class="kc"><div class="kc-lbl">Lucro bruto</div><div class="kc-val" style="color:${lucroC};font-size:17px">${fBRL(lucro)}</div></div>
-      <div class="kc"><div class="kc-lbl">LTV médio</div><div class="kc-val" style="color:#1c1410;font-size:17px">${fBRL(ltv)}</div><div class="kc-sub">por comprador ${S.currentFunil==="mapa"?"Mapa":"Manual"}</div></div>
-      <div class="kc"><div class="kc-lbl">Taxa de ascensão</div><div class="kc-val" style="color:#1c1410;font-size:17px">${taxaAscensao.toFixed(1)}%</div><div class="kc-sub">compraram 2+ produtos</div></div>
+    <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:13px;margin-bottom:18px">
+      <div class="kc"><div class="kc-lbl">Investimento</div><div class="kc-val" style="font-size:17px">${fBRL(totalSpend)}</div><div class="kc-sub">Meta Ads</div></div>
+      <div class="kc"><div class="kc-lbl">Faturamento Total</div><div class="kc-val" style="font-size:17px">${fBRL(totalFat)}</div><div class="kc-sub">todos os produtos</div></div>
+      <div class="kc" style="border-color:${statusBorder(roas,META_ROAS,true)}"><div class="kc-lbl">ROAS Funil</div><div class="kc-val" style="color:${roasC};font-size:17px">${roas.toFixed(2)}x</div><div class="kc-sub" style="color:${roasC}">▲ saudável</div></div>
+      <div class="kc" style="border-color:${lucro>=0?"rgba(52,211,153,.22)":"rgba(248,113,113,.22)"}"><div class="kc-lbl">Lucro Bruto</div><div class="kc-val" style="color:${lucroC};font-size:17px">${fBRL(lucro)}</div><div class="kc-sub">após custos</div></div>
+      <div class="kc"><div class="kc-lbl">LTV Médio</div><div class="kc-val" style="font-size:17px">${fBRL(ltv)}</div><div class="kc-sub">por comprador</div></div>
+      <div class="kc"><div class="kc-lbl">Taxa de Ascensão</div><div class="kc-val" style="font-size:17px">${taxaAscensao.toFixed(1)}%</div><div class="kc-sub">compraram 2+ produtos</div></div>
     </div>
 
-    <!-- Funil + Perdas lado a lado -->
-    <div style="display:grid;grid-template-columns:1fr 300px;gap:14px;margin-bottom:20px;align-items:start">
+    <!-- Funil por Produto (barras) + Funil de Conversão (pirâmide) lado a lado -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;align-items:start">
 
-      <!-- Funil Barras (Opção B) -->
-      <div class="cc" style="padding:16px">
-        <div class="section-lbl" style="margin-top:0;margin-bottom:16px">Funil de conversão</div>
+      <!-- Barras horizontais -->
+      <div class="cc" style="padding:18px">
+        <div class="section-lbl" style="margin-top:0;margin-bottom:14px">Funil por produto</div>
         <div style="display:flex;flex-direction:column;gap:10px">
           ${funilBarras(counts,fat,pct)}
         </div>
       </div>
 
-      <!-- Análise de perdas -->
-      <div style="display:flex;flex-direction:column;gap:10px">
-        <div class="section-lbl" style="margin-top:0;margin-bottom:2px">Análise de perdas</div>
+      <!-- Pirâmide -->
+      <div class="cc" style="padding:18px">
+        <div class="section-lbl" style="margin-top:0;margin-bottom:14px">Funil de conversão</div>
+        ${funilPyramid(counts,manualCount)}
+      </div>
+    </div>
 
-        <div class="kc" style="border-left:3px solid #b91c1c">
-          <div class="kc-lbl" style="color:#b91c1c">Reembolsos</div>
-          <div class="kc-val" style="color:#b91c1c;font-size:19px">${fBRL(valReemb)}</div>
-          <div class="kc-sub">${qtdReemb} pedidos · ${pctReemb.toFixed(1)}% do fat.</div>
-          <div style="margin-top:8px;display:flex;gap:6px">
-            <div style="flex:1;background:#f3f1ed;border-radius:5px;padding:5px 7px">
-              <div style="font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:1px">Reembolsado</div>
-              <div style="font-size:13px;font-weight:500;color:#b91c1c">${statusCounts["Reembolsado"]||0}</div>
-            </div>
-            <div style="flex:1;background:#f3f1ed;border-radius:5px;padding:5px 7px">
-              <div style="font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:1px">Ag. reembolso</div>
-              <div style="font-size:13px;font-weight:500;color:#c07800">${statusCounts["Aguardando Reembolso"]||0}</div>
-            </div>
+    <!-- 3 células em linha: Reembolsos / Em Recuperação / Faturas em Aberto -->
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:13px;margin-bottom:24px">
+      <!-- Reembolsos -->
+      <div class="kc" style="border-color:rgba(248,113,113,.22)">
+        <div class="kc-lbl" style="color:#f87171">Reembolsos</div>
+        <div class="kc-val" style="color:#f87171;font-size:22px">${fBRL(valReemb)}</div>
+        <div class="kc-sub">${qtdReemb} pedidos · ${pctReemb.toFixed(1)}% do fat.</div>
+        <div style="margin-top:10px;display:flex;gap:8px">
+          <div style="flex:1;background:var(--surf);border:1px solid var(--border);border-radius:9px;padding:8px 10px">
+            <div style="font-size:8px;color:var(--hint);text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px">Reembolsado</div>
+            <div style="font-size:16px;font-weight:600;color:#f87171;font-family:'JetBrains Mono',monospace">${statusCounts["Reembolsado"]||0}</div>
+          </div>
+          <div style="flex:1;background:var(--surf);border:1px solid var(--border);border-radius:9px;padding:8px 10px">
+            <div style="font-size:8px;color:var(--hint);text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px">Ag. Reembolso</div>
+            <div style="font-size:16px;font-weight:600;color:#fbbf24;font-family:'JetBrains Mono',monospace">${statusCounts["Aguardando Reembolso"]||0}</div>
           </div>
         </div>
+      </div>
 
-        <div class="kc" style="border-left:3px solid #c07800">
-          <div class="kc-lbl" style="color:#c07800">Em recuperação</div>
-          <div class="kc-val" style="color:#c07800;font-size:19px">${fBRL(valRec)}</div>
-          <div class="kc-sub">${qtdRec} pedidos · ${pctRec.toFixed(1)}% do fat.</div>
-        </div>
+      <!-- Em Recuperação -->
+      <div class="kc" style="border-color:rgba(251,191,36,.22)">
+        <div class="kc-lbl" style="color:#fbbf24">Em Recuperação</div>
+        <div class="kc-val" style="color:#fbbf24;font-size:22px">${fBRL(valRec)}</div>
+        <div class="kc-sub">${qtdRec} pedidos · ${pctRec.toFixed(1)}% do fat.</div>
+      </div>
 
-        <div class="kc" style="border-left:3px solid #a0917e">
-          <div class="kc-lbl">Faturas em aberto</div>
-          <div class="kc-val" style="color:#1c1410;font-size:19px">${fBRL(valAbrt)}</div>
-          <div class="kc-sub">${qtdAbrt} pedidos · ${pctAbrt.toFixed(1)}% do fat.</div>
-          <div style="margin-top:8px;display:flex;gap:6px">
-            <div style="flex:1;background:#f3f1ed;border-radius:5px;padding:5px 7px">
-              <div style="font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:1px">Aberto</div>
-              <div style="font-size:13px;font-weight:500">${statusCounts["Aberta"]||0}</div>
-            </div>
-            <div style="flex:1;background:#f3f1ed;border-radius:5px;padding:5px 7px">
-              <div style="font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:1px">Ag. pagamento</div>
-              <div style="font-size:13px;font-weight:500">${statusCounts["Aguardando Pagamento"]||0}</div>
-            </div>
+      <!-- Faturas em Aberto -->
+      <div class="kc">
+        <div class="kc-lbl">Faturas em Aberto</div>
+        <div class="kc-val" style="font-size:22px">${fBRL(valAbrt)}</div>
+        <div class="kc-sub">${qtdAbrt} pedidos · ${pctAbrt.toFixed(1)}% do fat.</div>
+        <div style="margin-top:10px;display:flex;gap:8px">
+          <div style="flex:1;background:var(--surf);border:1px solid var(--border);border-radius:9px;padding:8px 10px">
+            <div style="font-size:8px;color:var(--hint);text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px">Aberto</div>
+            <div style="font-size:16px;font-weight:600;font-family:'JetBrains Mono',monospace">${statusCounts["Aberta"]||0}</div>
+          </div>
+          <div style="flex:1;background:var(--surf);border:1px solid var(--border);border-radius:9px;padding:8px 10px">
+            <div style="font-size:8px;color:var(--hint);text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px">Ag. Pagamento</div>
+            <div style="font-size:16px;font-weight:600;font-family:'JetBrains Mono',monospace">${statusCounts["Aguardando Pagamento"]||0}</div>
           </div>
         </div>
       </div>
     </div>
 
-    <hr style="border:none;border-top:1px solid var(--border);margin:28px 0"/>
+    <div style="border-top:1px solid var(--border);margin:24px 0 20px"></div>
     <div class="section-lbl">Análise exploratória</div>
     ${buildAnaContent(fd,fd.buyers||new Map())}
     <p class="foot">Base Vendas - Completo (Eduzz) + Base Meta (Stract) · Google Sheets API v4</p>`;
@@ -2382,7 +2537,7 @@ function buildAnaContent(fd, buyers){
 
   const sel=`style="background:var(--card);border:0.5px solid var(--border-h);border-radius:7px;padding:6px 10px;font-size:12px;color:var(--text);min-width:180px"`;
   const btnRun=`style="background:var(--text);color:var(--bg);border:none;padding:7px 18px;border-radius:7px;font-size:12px;font-weight:500;cursor:pointer"`;
-  const filterBox=`style="background:var(--bg);border:0.5px solid var(--border);border-radius:9px;padding:12px 14px;margin-bottom:14px;display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap"`;
+  const filterBox=`style="background:var(--bg);border:1px solid var(--border);border-radius:9px;padding:12px 14px;margin-bottom:14px;display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap"`;
 
   // Conteúdo aba Tempo
   const tempoHTML=`
@@ -2397,7 +2552,7 @@ function buildAnaContent(fd, buyers){
       <div class="ch"><span class="ct">${prodLabel(S.anaTempoProd1)} → ${prodLabel(S.anaTempoProd2)}</span><span class="kc-sub">${tempoR.count} compradores dos dois</span></div>
       <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
         <div class="kc"><div class="kc-lbl">Dias (média)</div><div class="kc-val" style="font-size:28px;color:var(--text)">${tempoR.avg}</div></div>
-        <div class="kc"><div class="kc-lbl">Mesmo dia</div><div class="kc-val" style="font-size:22px;color:#1a7a4a">${((tempoR.sameDay/tempoR.count)*100).toFixed(0)}%</div><div class="kc-sub">${tempoR.sameDay} pessoas</div></div>
+        <div class="kc"><div class="kc-lbl">Mesmo dia</div><div class="kc-val" style="font-size:22px;color:#34d399">${((tempoR.sameDay/tempoR.count)*100).toFixed(0)}%</div><div class="kc-sub">${tempoR.sameDay} pessoas</div></div>
         <div class="kc"><div class="kc-lbl">Até 30 dias</div><div class="kc-val" style="font-size:22px">${((tempoR.within30/tempoR.count)*100).toFixed(0)}%</div><div class="kc-sub">${tempoR.within30} pessoas</div></div>
         <div class="kc"><div class="kc-lbl">Após 30 dias</div><div class="kc-val" style="font-size:22px;color:var(--muted)">${((tempoR.after30/tempoR.count)*100).toFixed(0)}%</div><div class="kc-sub">${tempoR.after30} pessoas</div></div>
       </div></div>`:`<div class="cc"><p style="color:var(--hint);font-size:13px;padding:8px 0">Nenhum comprador encontrou os dois produtos no período.</p></div>`}`;
@@ -2425,7 +2580,7 @@ function buildAnaContent(fd, buyers){
           const w=Math.round(j.count/maxJ*100);
           return `<div style="display:flex;align-items:center;gap:10px">
             <span style="font-size:11px;color:var(--muted);width:260px;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${jornadaLabel(j.ids)}</span>
-            <div style="flex:1;height:22px;background:var(--bg);border-radius:3px;overflow:hidden;position:relative;border:0.5px solid var(--border)">
+            <div style="flex:1;height:22px;background:var(--bg);border-radius:3px;overflow:hidden;position:relative;border:1px solid var(--border)">
               <div style="height:100%;width:${w}%;background:#2d7d9a;opacity:.7;border-radius:3px"></div>
               <span style="position:absolute;right:7px;top:50%;transform:translateY(-50%);font-size:10px;font-weight:500;color:var(--text)">${pct}%</span>
             </div>
@@ -2451,7 +2606,7 @@ function buildAnaContent(fd, buyers){
         </select></div>
       <button onclick="runStatus()" ${btnRun}>Analisar</button>
     </div>
-    <div style="background:var(--card);border:0.5px solid var(--border);border-radius:10px;overflow:hidden">
+    <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;overflow:hidden">
       <table style="width:100%;border-collapse:collapse;font-size:11px">
         <thead><tr style="background:var(--bg);border-bottom:1px solid var(--border)">
           <th style="padding:9px 12px;text-align:left;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);border-right:1px solid var(--border)">${S.anaStatusGroup==="mes"?"Mês":S.anaStatusGroup==="status"?"Status":"Produto"}</th>
@@ -2465,7 +2620,7 @@ function buildAnaContent(fd, buyers){
             const lbl=S.anaStatusGroup==="produto"?(getFunilSteps().find(s=>s.id===key)?.label||key):key;
             return `<tr style="border-bottom:1px solid var(--border);background:${i%2===0?"var(--card)":"var(--bg)"}">
               <td style="padding:9px 12px;font-weight:500;border-right:1px solid var(--border)">${lbl}</td>
-              ${stCols.map(s=>`<td style="padding:9px 12px;text-align:center;border-right:1px solid var(--border);color:${s==="Paga"?"#1a7a4a":["Reembolsado","Aguardando Reembolso"].includes(s)?"#b91c1c":s==="Em Recuperacao"?"#c07800":"var(--text)"}">${row[s]||0}</td>`).join("")}
+              ${stCols.map(s=>`<td style="padding:9px 12px;text-align:center;border-right:1px solid var(--border);color:${s==="Paga"?"#34d399":["Reembolsado","Aguardando Reembolso"].includes(s)?"#f87171":s==="Em Recuperacao"?"#fbbf24":"var(--text)"}">${row[s]||0}</td>`).join("")}
               <td style="padding:9px 12px;text-align:center;font-weight:500">${tot}</td>
             </tr>`;
           }).join("")}
@@ -2504,7 +2659,7 @@ function renderGeralPrincipal(){
   const daily=getGeralDaily(S.gStartDate,S.gEndDate);
   const tot=getTotalsGeral(daily);
   const roasC=statusColor(tot.roas,META_ROAS,true);
-  const lucroC=tot.lucro>=0?"#1a7a4a":"#b91c1c";
+  const lucroC=tot.lucro>=0?"#34d399":"#f87171";
 
   el.innerHTML=`
     <div class="hdr">
@@ -2512,18 +2667,17 @@ function renderGeralPrincipal(){
         <div class="hdr-title">Consolidado — Manual + Mapa da Casa</div>
         <div class="hdr-sub">${daily.length>0?`${daily.length} dias`:""}${tot.vendas>0?` · ${tot.vendas} vendas`:""}</div>
       </div>
-      <button class="btn-refresh" onclick="loadData(true)" ${S.loading?"disabled":""}>${S.loading?"Carregando...":"↻ Atualizar"}</button>
     </div>
     ${S.error?`<div class="err">⚠️ ${S.error}</div>`:""}
-    ${periodBar(S.gStartDate,S.gEndDate,S.gActiveQuick,"g")}
+
     <div class="g3" style="margin-bottom:12px">
-      ${kpiCard("Investimento",fBRL(tot.spend),`${tot.vendas} vendas · ${daily.length} dias`,"#1c1410")}
+      ${kpiCard("Investimento",fBRL(tot.spend),`${tot.vendas} vendas · ${daily.length} dias`,"var(--text-strong)")}
       ${kpiCard("ROAS",tot.roas.toFixed(2)+"x",`Meta: ${META_ROAS.toFixed(2)}x`,roasC)}
-      ${kpiCard("Faturamento",fBRL(tot.faturamento),"","#1c1410")}
+      ${kpiCard("Faturamento",fBRL(tot.faturamento),"","var(--text-strong)")}
     </div>
     <div class="g3" style="margin-bottom:18px">
-      ${kpiCard("Custo por Venda",fBRL(tot.cpv),"","#1c1410")}
-      ${kpiCard("Ticket Médio",fBRL(tot.ticket),"","#1c1410")}
+      ${kpiCard("Custo por Venda",fBRL(tot.cpv),"","var(--text-strong)")}
+      ${kpiCard("Ticket Médio",fBRL(tot.ticket),"","var(--text-strong)")}
       ${kpiCard("Lucro Bruto",fBRL(tot.lucro),"",lucroC)}
     </div>
     <div class="charts-2x2">
@@ -2579,28 +2733,7 @@ function renderGeralFunil(){
   const roas=totalSpend>0?totalFat/totalSpend:0;
   const lucro=totalFat-totalTaxa-(totalSpend*TAXA_IMPOSTO);
   const roasC=statusColor(roas,META_ROAS,true);
-  const lucroC=lucro>=0?"#1a7a4a":"#b91c1c";
-
-  const QS=[{k:"all",l:"Todos"},{k:"hoje",l:"Hoje"},{k:"ontem",l:"Ontem"},{k:"7d",l:"7 dias"},{k:"30d",l:"30 dias"},{k:"mes",l:"Este mês"}];
-
-  function applyGeralFunilQuick(k){
-    S.gfActiveQuick=k;
-    const t=todayISO();
-    if(k==="all")     {S.gfStartDate="";S.gfEndDate="";}
-    else if(k==="hoje") {S.gfStartDate=t;S.gfEndDate=t;}
-    else if(k==="ontem"){const y=yesterdayISO();S.gfStartDate=y;S.gfEndDate=y;}
-    else if(k==="7d")   {S.gfStartDate=nDaysAgoISO(6);S.gfEndDate=t;}
-    else if(k==="30d")  {S.gfStartDate=nDaysAgoISO(29);S.gfEndDate=t;}
-    else if(k==="mes")  {S.gfStartDate=firstOfMonthISO();S.gfEndDate=t;}
-    renderGeralFunil();
-  }
-  window.applyGeralFunilQuick=applyGeralFunilQuick;
-
-  function onGeralFunilDC(w,v){
-    if(w==="s")S.gfStartDate=v;else S.gfEndDate=v;
-    S.gfActiveQuick="";renderGeralFunil();
-  }
-  window.onGeralFunilDC=onGeralFunilDC;
+  const lucroC=lucro>=0?"#34d399":"#f87171";
 
   // Barras do funil geral (8 passos)
   const GERAL_STEPS=[
@@ -2639,7 +2772,7 @@ function renderGeralFunil(){
         <div style="font-size:11px;font-weight:600;color:var(--text)">${s.label}</div>
         <div style="font-size:9px;color:var(--hint);margin-top:1px">${s.step}</div>
       </div>
-      <div style="flex:1;height:30px;background:var(--bg);border-radius:5px;overflow:hidden;position:relative;border:0.5px solid var(--border)">
+      <div style="flex:1;height:30px;background:var(--bg);border-radius:5px;overflow:hidden;position:relative;border:1px solid var(--border)">
         <div style="height:100%;width:${barW}%;background:${col};border-radius:5px;display:flex;align-items:center;padding-left:8px;min-width:2px">${innerLabel}</div>
         ${outerLabel}
       </div>
@@ -2667,33 +2800,17 @@ function renderGeralFunil(){
         <div class="hdr-title">Métricas do funil — Consolidado</div>
         <div class="hdr-sub">base: ${entryCount} compradores únicos (Manual + Mapa)</div>
       </div>
-      <button class="btn-refresh" onclick="loadData(true)" ${S.loading?"disabled":""}>${S.loading?"Carregando...":"↻ Atualizar"}</button>
     </div>
     ${S.error?`<div class="err">⚠️ ${S.error}</div>`:""}
 
-    <div class="period-wrap">
-      <div class="period-top">
-        <span class="period-lbl">Período</span>
-        <div class="drbox">
-          <span class="drbox-icon">📅</span>
-          <input type="date" value="${S.gfStartDate}" onchange="onGeralFunilDC('s',this.value)"/>
-          <span class="drbox-sep">—</span>
-          <input type="date" value="${S.gfEndDate}" onchange="onGeralFunilDC('e',this.value)"/>
-        </div>
-      </div>
-      <div class="period-quick">
-        ${QS.map(q=>`<button class="btn-q${(S.gfActiveQuick||"all")===q.k?" on":""}" onclick="applyGeralFunilQuick('${q.k}')">${q.l}</button>`).join("")}
-      </div>
-    </div>
-
     <!-- KPIs -->
     <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:20px">
-      <div class="kc"><div class="kc-lbl">Investimento</div><div class="kc-val" style="color:#1c1410;font-size:17px">${fBRL(totalSpend)}</div><div class="kc-sub">Meta Ads</div></div>
-      <div class="kc"><div class="kc-lbl">Faturamento total</div><div class="kc-val" style="color:#1c1410;font-size:17px">${fBRL(totalFat)}</div><div class="kc-sub">todos os produtos</div></div>
+      <div class="kc"><div class="kc-lbl">Investimento</div><div class="kc-val" style="color:var(--text-strong);font-size:17px">${fBRL(totalSpend)}</div><div class="kc-sub">Meta Ads</div></div>
+      <div class="kc"><div class="kc-lbl">Faturamento total</div><div class="kc-val" style="color:var(--text-strong);font-size:17px">${fBRL(totalFat)}</div><div class="kc-sub">todos os produtos</div></div>
       <div class="kc"><div class="kc-lbl">ROAS funil</div><div class="kc-val" style="color:${roasC};font-size:17px">${roas.toFixed(2)}x</div></div>
       <div class="kc"><div class="kc-lbl">Lucro bruto</div><div class="kc-val" style="color:${lucroC};font-size:17px">${fBRL(lucro)}</div></div>
-      <div class="kc"><div class="kc-lbl">LTV médio</div><div class="kc-val" style="color:#1c1410;font-size:17px">${fBRL(ltv)}</div><div class="kc-sub">por comprador único</div></div>
-      <div class="kc"><div class="kc-lbl">Taxa de ascensão</div><div class="kc-val" style="color:#1c1410;font-size:17px">${taxaAscensao.toFixed(1)}%</div><div class="kc-sub">${ascensaoCount} compradores</div></div>
+      <div class="kc"><div class="kc-lbl">LTV médio</div><div class="kc-val" style="color:var(--text-strong);font-size:17px">${fBRL(ltv)}</div><div class="kc-sub">por comprador único</div></div>
+      <div class="kc"><div class="kc-lbl">Taxa de ascensão</div><div class="kc-val" style="color:var(--text-strong);font-size:17px">${taxaAscensao.toFixed(1)}%</div><div class="kc-sub">${ascensaoCount} compradores</div></div>
     </div>
 
     <!-- Funil + Perdas -->
@@ -2707,29 +2824,29 @@ function renderGeralFunil(){
 
       <div style="display:flex;flex-direction:column;gap:10px">
         <div class="section-lbl" style="margin-top:0;margin-bottom:2px">Análise de perdas</div>
-        <div class="kc" style="border-left:3px solid #b91c1c">
-          <div class="kc-lbl" style="color:#b91c1c">Reembolsos</div>
-          <div class="kc-val" style="color:#b91c1c;font-size:19px">${fBRL(valReemb)}</div>
+        <div class="kc" style="border-color:rgba(248,113,113,.22)">
+          <div class="kc-lbl" style="color:#f87171">Reembolsos</div>
+          <div class="kc-val" style="color:#f87171;font-size:19px">${fBRL(valReemb)}</div>
           <div class="kc-sub">${qtdReemb} pedidos · ${pctReemb.toFixed(1)}% do fat.</div>
           <div style="margin-top:8px;display:flex;gap:6px">
-            <div style="flex:1;background:#f3f1ed;border-radius:5px;padding:5px 7px">
+            <div style="flex:1;background:var(--surf);border-radius:5px;padding:5px 7px">
               <div style="font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:1px">Reembolsado</div>
-              <div style="font-size:13px;font-weight:500;color:#b91c1c">${statusCounts["Reembolsado"]||0}</div>
+              <div style="font-size:13px;font-weight:500;color:#f87171">${statusCounts["Reembolsado"]||0}</div>
             </div>
-            <div style="flex:1;background:#f3f1ed;border-radius:5px;padding:5px 7px">
+            <div style="flex:1;background:var(--surf);border-radius:5px;padding:5px 7px">
               <div style="font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:1px">Ag. reembolso</div>
-              <div style="font-size:13px;font-weight:500;color:#c07800">${statusCounts["Aguardando Reembolso"]||0}</div>
+              <div style="font-size:13px;font-weight:500;color:#fbbf24">${statusCounts["Aguardando Reembolso"]||0}</div>
             </div>
           </div>
         </div>
-        <div class="kc" style="border-left:3px solid #c07800">
-          <div class="kc-lbl" style="color:#c07800">Em recuperação</div>
-          <div class="kc-val" style="color:#c07800;font-size:19px">${fBRL(valRec)}</div>
+        <div class="kc" style="border-color:rgba(251,191,36,.22)">
+          <div class="kc-lbl" style="color:#fbbf24">Em recuperação</div>
+          <div class="kc-val" style="color:#fbbf24;font-size:19px">${fBRL(valRec)}</div>
           <div class="kc-sub">${qtdRec} pedidos · ${pctRec.toFixed(1)}% do fat.</div>
         </div>
-        <div class="kc" style="border-left:3px solid #a0917e">
+        <div class="kc" style="border-color:var(--border)">
           <div class="kc-lbl">Faturas em aberto</div>
-          <div class="kc-val" style="color:#1c1410;font-size:19px">${fBRL(valAbrt)}</div>
+          <div class="kc-val" style="color:var(--text-strong);font-size:19px">${fBRL(valAbrt)}</div>
           <div class="kc-sub">${qtdAbrt} pedidos · ${pctAbrt.toFixed(1)}% do fat.</div>
         </div>
       </div>
@@ -2739,17 +2856,18 @@ function renderGeralFunil(){
 
 // ── Render ─────────────────────────────────────────────────────────────────
 function render(){
+  renderHeader();
   const ld=document.getElementById("loading");
   if(S.firstLoad&&S.loading){ld.style.display="flex";return;}
   ld.style.display="none";
   if(IS_FILE){
     document.getElementById("page-principal").innerHTML=`
-      <div class="hdr"><div><div class="hdr-title">Manual Definitivo para Construção e Venda de Casas Financiadas</div></div></div>
-      <div style="background:var(--card);border:0.5px solid var(--border-h);border-radius:12px;padding:32px 36px;max-width:520px;margin:40px auto">
-        <h2 style="font-size:15px;font-weight:600;margin-bottom:10px">⚠️ Abra via servidor local</h2>
+      <div class="hdr"><div><div class="hdr-title">Manual Definitivo</div></div></div>
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:14px;padding:32px 36px;max-width:520px;margin:40px auto">
+        <h2 style="font-size:15px;font-weight:600;margin-bottom:10px;color:var(--text-strong)">⚠️ Abra via servidor local</h2>
         <p style="font-size:13px;color:var(--muted);line-height:1.7;margin-bottom:16px">Sirva via HTTP para o fetch funcionar:</p>
-        <code style="display:block;background:#f3f1ed;border:0.5px solid var(--border);border-radius:6px;padding:10px 14px;font-family:'DM Mono',monospace;font-size:12px;margin-bottom:8px">python -m http.server 8080</code>
-        <code style="display:block;background:#f3f1ed;border:0.5px solid var(--border);border-radius:6px;padding:10px 14px;font-family:'DM Mono',monospace;font-size:12px">http://localhost:8080/dashboard.html</code>
+        <code style="display:block;background:var(--surf);border:1px solid var(--border);border-radius:6px;padding:10px 14px;font-family:'JetBrains Mono',monospace;font-size:12px;margin-bottom:8px;color:var(--text)">python -m http.server 8080</code>
+        <code style="display:block;background:var(--surf);border:1px solid var(--border);border-radius:6px;padding:10px 14px;font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text)">http://localhost:8080/</code>
       </div>`;
     return;
   }
