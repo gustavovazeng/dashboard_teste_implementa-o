@@ -63,23 +63,24 @@ export default async function handler(req, res) {
     return res.status(200).json({ success: false, rows: 0, date: dateStr, message: 'Sem dados', errors });
   }
  
-  // 2. Busca instagram_permalink_url via creative em batch
-  try {
-    const uniqueAdIds = [...new Set(allRows.map(r => r.ad_id))];
-    const adIds = uniqueAdIds.join(',');
-    const creativeRes = await fetch(
-      `https://graph.facebook.com/v21.0/?ids=${adIds}&fields=creative{instagram_permalink_url}&access_token=${token}`
-    );
-    const creativeData = await creativeRes.json();
+  // 2. Busca instagram_permalink_url — query individual por ad_id em paralelo (v25.0)
+  const uniqueAdIds = [...new Set(allRows.map(r => r.ad_id))];
+  const permalinkMap = {};
  
-    if (!creativeData.error) {
-      for (const row of allRows) {
-        const permalink = creativeData[row.ad_id]?.creative?.instagram_permalink_url || null;
-        row.instagram_url = permalink;
-      }
+  await Promise.all(uniqueAdIds.map(async (adId) => {
+    try {
+      const r = await fetch(
+        `https://graph.facebook.com/v25.0/${adId}?fields=creative{instagram_permalink_url}&access_token=${token}`
+      );
+      const d = await r.json();
+      permalinkMap[adId] = d?.creative?.instagram_permalink_url || null;
+    } catch (e) {
+      permalinkMap[adId] = null;
     }
-  } catch (e) {
-    errors.push({ step: 'creative_permalink', error: e.message });
+  }));
+ 
+  for (const row of allRows) {
+    row.instagram_url = permalinkMap[row.ad_id] || null;
   }
  
   // 3. Salva no Supabase
