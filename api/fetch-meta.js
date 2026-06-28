@@ -4,19 +4,20 @@ export default async function handler(req, res) {
   const supabaseUrl = process.env.SUPABASE_URL;
   const supabaseKey = process.env.SUPABASE_ANON_KEY;
  
-  const fields = 'date_start,spend,impressions,reach,ad_id,ad_name,campaign_name,clicks,actions,creative{instagram_permalink_url}';
- 
   const dateParam = req.query?.date;
   const yesterday = new Date();
   yesterday.setDate(yesterday.getDate() - 1);
   const dateStr = dateParam || yesterday.toISOString().split('T')[0];
-  const timeRange = encodeURIComponent(JSON.stringify({ since: dateStr, until: dateStr }));
+ 
+  const timeRange = JSON.stringify({ since: dateStr, until: dateStr });
+  const insightFields = `insights.time_range(${timeRange}){date_start,spend,impressions,reach,clicks,actions}`;
+  const fields = `id,name,campaign{name},creative{instagram_permalink_url},${insightFields}`;
  
   let allRows = [];
   const errors = [];
  
   for (const accountId of accounts) {
-    const url = `https://graph.facebook.com/v25.0/${accountId.trim()}/insights?fields=${fields}&time_range=${timeRange}&level=ad&limit=500&access_token=${token}`;
+    const url = `https://graph.facebook.com/v25.0/${accountId.trim()}/ads?fields=${encodeURIComponent(fields)}&limit=500&access_token=${token}`;
  
     try {
       const response = await fetch(url);
@@ -29,8 +30,12 @@ export default async function handler(req, res) {
  
       if (!data.data || data.data.length === 0) continue;
  
-      for (const row of data.data) {
-        const actions = row.actions || [];
+      for (const ad of data.data) {
+        if (!ad.insights?.data?.[0]) continue;
+ 
+        const insight = ad.insights.data[0];
+        const actions = insight.actions || [];
+ 
         const linkClicks       = actions.find(a => a.action_type === 'link_click')?.value || 0;
         const landingViews     = actions.find(a => a.action_type === 'landing_page_view')?.value || 0;
         const initiateCheckout = actions.find(a => a.action_type === 'initiate_checkout')?.value || 0;
@@ -38,17 +43,17 @@ export default async function handler(req, res) {
         const newFollowers     = actions.find(a => a.action_type === 'follow')?.value || 0;
  
         allRows.push({
-          date: row.date_start,
-          spend: parseFloat(row.spend || 0),
+          date: insight.date_start,
+          spend: parseFloat(insight.spend || 0),
           link_clicks: parseInt(linkClicks),
-          impressions: parseInt(row.impressions || 0),
-          reach: parseInt(row.reach || 0),
-          ad_id: row.ad_id,
-          ad_name: row.ad_name,
-          instagram_url: row.creative?.instagram_permalink_url || null,
+          impressions: parseInt(insight.impressions || 0),
+          reach: parseInt(insight.reach || 0),
+          ad_id: ad.id,
+          ad_name: ad.name,
+          instagram_url: ad.creative?.instagram_permalink_url || null,
           landing_page_views: parseInt(landingViews),
           initiate_checkout: parseInt(initiateCheckout),
-          campaign_name: row.campaign_name,
+          campaign_name: ad.campaign?.name || null,
           profile_visits: parseInt(profileVisits),
           new_followers: parseInt(newFollowers)
         });
