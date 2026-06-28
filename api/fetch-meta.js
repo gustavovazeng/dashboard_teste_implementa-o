@@ -23,23 +23,24 @@ export default async function handler(req, res) {
   const adIds = data.data.map(r => r.ad_id).join(',');
  
   // Testa múltiplas abordagens para pegar o link do Instagram
-  const creativeRes = await fetch(
-    `https://graph.facebook.com/v19.0/?ids=${adIds}&fields=instagram_permalink_url,preview_shareable_link,creative{id,instagram_permalink_url,effective_object_story_id}&access_token=${token}`
-  );
-  const creativeData = await creativeRes.json();
- 
   const results = [];
   for (const row of data.data) {
-    const adData = creativeData[row.ad_id] || {};
-    const creative = adData.creative || {};
+    // Testa o endpoint /previews com generate_preview_link
+    let previewLink = null;
+    try {
+      const previewRes = await fetch(
+        `https://graph.facebook.com/v19.0/${row.ad_id}/previews?ad_format=INSTAGRAM_STANDARD&generate_preview_link=true&access_token=${token}`
+      );
+      const previewData = await previewRes.json();
+      previewLink = previewData?.data?.[0]?.body || previewData?.error?.message || null;
+    } catch (e) {
+      previewLink = e.message;
+    }
  
     results.push({
       ad_id: row.ad_id,
       ad_name: row.ad_name,
-      permalink_via_ad: adData.instagram_permalink_url || null,
-      preview_shareable_link: adData.preview_shareable_link || null,
-      permalink_via_creative: creative.instagram_permalink_url || null,
-      effective_object_story_id: creative.effective_object_story_id || null,
+      preview_result: previewLink
     });
   }
  
