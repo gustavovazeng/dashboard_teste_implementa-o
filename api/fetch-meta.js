@@ -1,4 +1,3 @@
-
 export default async function handler(req, res) {
   const accounts = process.env.META_AD_ACCOUNT_IDS.split(',');
   const token = process.env.META_ACCESS_TOKEN;
@@ -18,7 +17,7 @@ export default async function handler(req, res) {
  
   // 1. Busca insights de todas as contas
   for (const accountId of accounts) {
-    const url = `https://graph.facebook.com/v19.0/${accountId.trim()}/insights?fields=${fields}&time_range=${timeRange}&level=ad&limit=500&access_token=${token}`;
+    const url = `https://graph.facebook.com/v21.0/${accountId.trim()}/insights?fields=${fields}&time_range=${timeRange}&level=ad&limit=500&access_token=${token}`;
  
     try {
       const response = await fetch(url);
@@ -64,26 +63,23 @@ export default async function handler(req, res) {
     return res.status(200).json({ success: false, rows: 0, date: dateStr, message: 'Sem dados', errors });
   }
  
-  // 2. Busca preview link para cada ad_id único (em paralelo)
-  const uniqueAdIds = [...new Set(allRows.map(r => r.ad_id))];
-  const previewMap = {};
+  // 2. Busca instagram_permalink_url via creative em batch
+  try {
+    const uniqueAdIds = [...new Set(allRows.map(r => r.ad_id))];
+    const adIds = uniqueAdIds.join(',');
+    const creativeRes = await fetch(
+      `https://graph.facebook.com/v21.0/?ids=${adIds}&fields=creative{instagram_permalink_url}&access_token=${token}`
+    );
+    const creativeData = await creativeRes.json();
  
-  await Promise.all(uniqueAdIds.map(async (adId) => {
-    try {
-      const previewRes = await fetch(
-        `https://graph.facebook.com/v19.0/${adId}/previews?ad_format=INSTAGRAM_STANDARD&generate_preview_link=true&access_token=${token}`
-      );
-      const previewData = await previewRes.json();
-      const iframeHtml = previewData?.data?.[0]?.body || '';
-      const match = iframeHtml.match(/src="([^"]+)"/);
-      previewMap[adId] = match ? match[1].replace(/&amp;/g, '&') : null;
-    } catch (e) {
-      previewMap[adId] = null;
+    if (!creativeData.error) {
+      for (const row of allRows) {
+        const permalink = creativeData[row.ad_id]?.creative?.instagram_permalink_url || null;
+        row.instagram_url = permalink;
+      }
     }
-  }));
- 
-  for (const row of allRows) {
-    row.instagram_url = previewMap[row.ad_id] || null;
+  } catch (e) {
+    errors.push({ step: 'creative_permalink', error: e.message });
   }
  
   // 3. Salva no Supabase
