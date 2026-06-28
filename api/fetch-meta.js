@@ -4,28 +4,13 @@ export default async function handler(req, res) {
   const supabaseUrl = process.env.SUPABASE_URL;
   const supabaseKey = process.env.SUPABASE_ANON_KEY;
 
-  const fields = [
-    'date_start',
-    'spend',
-    'actions',
-    'impressions',
-    'reach',
-    'ad_id',
-    'ad_name',
-    'instagram_permalink_url',
-    'campaign_name'
-  ].join(',');
-
-const now = new Date();
-now.setUTCHours(now.getUTCHours() - 3); // converte para horário de Brasília
-now.setDate(now.getDate() - 1);
-const dateStr = now.toISOString().split('T')[0];
+  const fields = 'date_start,spend,actions,impressions,reach,ad_id,ad_name,instagram_permalink_url,campaign_name';
+  const dateStr = '2026-06-26';
 
   let allRows = [];
 
   for (const accountId of accounts) {
     const url = `https://graph.facebook.com/v19.0/${accountId}/insights?fields=${fields}&time_range={"since":"${dateStr}","until":"${dateStr}"}&level=ad&access_token=${token}`;
-
     const response = await fetch(url);
     const data = await response.json();
 
@@ -53,7 +38,7 @@ const dateStr = now.toISOString().split('T')[0];
   }
 
   if (allRows.length === 0) {
-    return res.status(200).json({ success: true, rows: 0, message: 'Sem dados para essa data' });
+    return res.status(200).json({ success: true, rows: 0, message: 'Sem dados' });
   }
 
   const insert = await fetch(`${supabaseUrl}/rest/v1/meta_ads`, {
@@ -62,16 +47,15 @@ const dateStr = now.toISOString().split('T')[0];
       'Content-Type': 'application/json',
       'apikey': supabaseKey,
       'Authorization': `Bearer ${supabaseKey}`,
-      'Prefer': 'return=representation'
+      'Prefer': 'return=minimal'
     },
     body: JSON.stringify(allRows)
   });
 
-  const insertResult = await insert.text();
-
   if (insert.ok) {
     res.status(200).json({ success: true, rows: allRows.length });
   } else {
-    res.status(500).json({ success: false, error: insertResult });
+    const err = await insert.text();
+    res.status(500).json({ success: false, error: err });
   }
 }
