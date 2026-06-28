@@ -16,9 +16,10 @@ export default async function handler(req, res) {
     'campaign_name'
   ].join(',');
 
-  const yesterday = new Date();
-  yesterday.setDate(yesterday.getDate() - 1);
-const dateStr = '2026-06-26';
+const now = new Date();
+now.setUTCHours(now.getUTCHours() - 3); // converte para horário de Brasília
+now.setDate(now.getDate() - 1);
+const dateStr = now.toISOString().split('T')[0];
 
   let allRows = [];
 
