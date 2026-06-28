@@ -4,22 +4,23 @@ export default async function handler(req, res) {
   const supabaseUrl = process.env.SUPABASE_URL;
   const supabaseKey = process.env.SUPABASE_ANON_KEY;
 
-  const fields = 'date_start,spend,actions,impressions,reach,ad_id,ad_name,instagram_permalink_url,campaign_name';
+  const fields = 'date_start,spend,impressions,reach,ad_id,ad_name,instagram_permalink_url,campaign_name,clicks,actions';
   const dateStr = '2026-06-26';
 
   let allRows = [];
 
   for (const accountId of accounts) {
-    const url = `https://graph.facebook.com/v19.0/${accountId}/insights?fields=${fields}&time_range={"since":"${dateStr}","until":"${dateStr}"}&level=ad&access_token=${token}`;
+    const url = `https://graph.facebook.com/v19.0/${accountId}/insights?fields=${fields}&time_range={"since":"${dateStr}","until":"${dateStr}"}&level=ad&limit=500&access_token=${token}`;
     const response = await fetch(url);
     const data = await response.json();
 
     if (!data.data || data.data.length === 0) continue;
 
     for (const row of data.data) {
-      const linkClicks = row.actions?.find(a => a.action_type === 'link_click')?.value || 0;
-      const landingViews = row.actions?.find(a => a.action_type === 'landing_page_view')?.value || 0;
-      const initiateCheckout = row.actions?.find(a => a.action_type === 'initiate_checkout')?.value || 0;
+      const actions = row.actions || [];
+      const linkClicks = actions.find(a => a.action_type === 'link_click')?.value || 0;
+      const landingViews = actions.find(a => a.action_type === 'landing_page_view')?.value || 0;
+      const initiateCheckout = actions.find(a => a.action_type === 'initiate_checkout')?.value || 0;
 
       allRows.push({
         date: row.date_start,
@@ -38,7 +39,7 @@ export default async function handler(req, res) {
   }
 
   if (allRows.length === 0) {
-    return res.status(200).json({ success: true, rows: 0, message: 'Sem dados' });
+    return res.status(200).json({ success: true, rows: 0, message: 'Sem dados', debug: 'nenhuma conta retornou dados' });
   }
 
   const insert = await fetch(`${supabaseUrl}/rest/v1/meta_ads`, {
