@@ -1,24 +1,22 @@
-
 export default async function handler(req, res) {
   const accounts = process.env.META_AD_ACCOUNT_IDS.split(',');
   const token = process.env.META_ACCESS_TOKEN;
   const supabaseUrl = process.env.SUPABASE_URL;
   const supabaseKey = process.env.SUPABASE_ANON_KEY;
-  const fields = 'date_start,spend,impressions,reach,ad_id,ad_name,campaign_name,clicks,actions';
+ 
+  const fields = 'date_start,spend,impressions,reach,ad_id,ad_name,campaign_name,clicks,actions,creative{instagram_permalink_url}';
  
   const dateParam = req.query?.date;
   const yesterday = new Date();
   yesterday.setDate(yesterday.getDate() - 1);
   const dateStr = dateParam || yesterday.toISOString().split('T')[0];
- 
   const timeRange = encodeURIComponent(JSON.stringify({ since: dateStr, until: dateStr }));
  
   let allRows = [];
   const errors = [];
  
-  // 1. Busca insights de todas as contas
   for (const accountId of accounts) {
-    const url = `https://graph.facebook.com/v21.0/${accountId.trim()}/insights?fields=${fields}&time_range=${timeRange}&level=ad&limit=500&access_token=${token}`;
+    const url = `https://graph.facebook.com/v25.0/${accountId.trim()}/insights?fields=${fields}&time_range=${timeRange}&level=ad&limit=500&access_token=${token}`;
  
     try {
       const response = await fetch(url);
@@ -47,7 +45,7 @@ export default async function handler(req, res) {
           reach: parseInt(row.reach || 0),
           ad_id: row.ad_id,
           ad_name: row.ad_name,
-          instagram_url: null, // preenchido na etapa 2
+          instagram_url: row.creative?.instagram_permalink_url || null,
           landing_page_views: parseInt(landingViews),
           initiate_checkout: parseInt(initiateCheckout),
           campaign_name: row.campaign_name,
@@ -64,33 +62,6 @@ export default async function handler(req, res) {
     return res.status(200).json({ success: false, rows: 0, date: dateStr, message: 'Sem dados', errors });
   }
  
-  // 2. Busca instagram_permalink_url — testa com o primeiro ad_id para diagnóstico
-  const uniqueAdIds = [...new Set(allRows.map(r => r.ad_id))];
-  const permalinkMap = {};
-  const permalinkDebug = [];
- 
-  await Promise.all(uniqueAdIds.map(async (adId) => {
-    try {
-      const r = await fetch(
-        `https://graph.facebook.com/v25.0/${adId}?fields=creative{instagram_permalink_url}&access_token=${token}`
-      );
-      const d = await r.json();
-      const url = d?.creative?.instagram_permalink_url || null;
-      permalinkMap[adId] = url;
-      if (permalinkDebug.length < 3) {
-        permalinkDebug.push({ adId, raw: d, url });
-      }
-    } catch (e) {
-      permalinkMap[adId] = null;
-      permalinkDebug.push({ adId, error: e.message });
-    }
-  }));
- 
-  for (const row of allRows) {
-    row.instagram_url = permalinkMap[row.ad_id] || null;
-  }
- 
-  // 3. Salva no Supabase
   const insert = await fetch(`${supabaseUrl}/rest/v1/meta_ads`, {
     method: 'POST',
     headers: {
@@ -103,7 +74,8 @@ export default async function handler(req, res) {
   });
  
   if (insert.ok) {
-    res.status(200).json({ success: true, rows: allRows.length, date: dateStr, errors, permalinkDebug });
+    const sample = allRows.slice(0, 3).map(r => ({ ad_id: r.ad_id, ad_name: r.ad_name, instagram_url: r.instagram_url }));
+    res.status(200).json({ success: true, rows: allRows.length, date: dateStr, errors, sample });
   } else {
     const err = await insert.text();
     res.status(500).json({ success: false, error: err, rows: allRows.length });
