@@ -1,106 +1,63 @@
-
 export default async function handler(req, res) {
   const accounts = process.env.META_AD_ACCOUNT_IDS.split(',');
   const token = process.env.META_ACCESS_TOKEN;
-  const supabaseUrl = process.env.SUPABASE_URL;
-  const supabaseKey = process.env.SUPABASE_ANON_KEY;
   const fields = 'date_start,spend,impressions,reach,ad_id,ad_name,campaign_name,clicks,actions';
  
   const dateParam = req.query?.date;
   const yesterday = new Date();
   yesterday.setDate(yesterday.getDate() - 1);
   const dateStr = dateParam || yesterday.toISOString().split('T')[0];
- 
   const timeRange = encodeURIComponent(JSON.stringify({ since: dateStr, until: dateStr }));
  
-  let allRows = [];
-  const errors = [];
+  // Pega só a primeira conta, 3 anúncios para diagnóstico
+  const accountId = accounts[0].trim();
+  const url = `https://graph.facebook.com/v19.0/${accountId}/insights?fields=${fields}&time_range=${timeRange}&level=ad&limit=3&access_token=${token}`;
  
-  // 1. Busca insights de todas as contas
-  for (const accountId of accounts) {
-    const url = `https://graph.facebook.com/v19.0/${accountId.trim()}/insights?fields=${fields}&time_range=${timeRange}&level=ad&limit=500&access_token=${token}`;
+  const response = await fetch(url);
+  const data = await response.json();
  
-    try {
-      const response = await fetch(url);
-      const data = await response.json();
+  if (!data.data || data.data.length === 0) {
+    return res.status(200).json({ message: 'Sem dados', error: data.error });
+  }
  
-      if (data.error) {
-        errors.push({ account: accountId, error: data.error.message });
-        continue;
-      }
+  const adIds = data.data.map(r => r.ad_id).join(',');
  
-      if (!data.data || data.data.length === 0) continue;
+  // Testa múltiplas abordagens para pegar o link do Instagram
+  const creativeRes = await fetch(
+    `https://graph.facebook.com/v19.0/?ids=${adIds}&fields=instagram_permalink_url,creative{id,instagram_permalink_url,effective_object_story_id,object_story_id}&access_token=${token}`
+  );
+  const creativeData = await creativeRes.json();
  
-      for (const row of data.data) {
-        const actions = row.actions || [];
-        const linkClicks       = actions.find(a => a.action_type === 'link_click')?.value || 0;
-        const landingViews     = actions.find(a => a.action_type === 'landing_page_view')?.value || 0;
-        const initiateCheckout = actions.find(a => a.action_type === 'initiate_checkout')?.value || 0;
-        const profileVisits    = actions.find(a => a.action_type === 'instagram_profile_visit')?.value || 0;
-        const newFollowers     = actions.find(a => a.action_type === 'follow')?.value || 0;
+  // Para cada anúncio, tenta buscar o story object se tiver effective_object_story_id
+  const results = [];
+  for (const row of data.data) {
+    const adData = creativeData[row.ad_id] || {};
+    const creative = adData.creative || {};
+    const storyId = creative.effective_object_story_id || creative.object_story_id || null;
  
-        allRows.push({
-          date: row.date_start,
-          spend: parseFloat(row.spend || 0),
-          link_clicks: parseInt(linkClicks),
-          impressions: parseInt(row.impressions || 0),
-          reach: parseInt(row.reach || 0),
-          ad_id: row.ad_id,
-          ad_name: row.ad_name,
-          instagram_url: null, // preenchido na etapa 2
-          landing_page_views: parseInt(landingViews),
-          initiate_checkout: parseInt(initiateCheckout),
-          campaign_name: row.campaign_name,
-          profile_visits: parseInt(profileVisits),
-          new_followers: parseInt(newFollowers)
-        });
-      }
-    } catch (e) {
-      errors.push({ account: accountId, error: e.message });
+    let storyPermalink = null;
+    if (storyId) {
+      try {
+        const storyRes = await fetch(
+          `https://graph.facebook.com/v19.0/${storyId}?fields=instagram_permalink_url&access_token=${token}`
+        );
+        const storyData = await storyRes.json();
+        storyPermalink = storyData.instagram_permalink_url || null;
+      } catch (e) {}
     }
+ 
+    results.push({
+      ad_id: row.ad_id,
+      ad_name: row.ad_name,
+      // abordagem 1: direto no ad
+      permalink_via_ad: adData.instagram_permalink_url || null,
+      // abordagem 2: via creative
+      permalink_via_creative: creative.instagram_permalink_url || null,
+      // abordagem 3: via story object
+      effective_object_story_id: storyId,
+      permalink_via_story: storyPermalink
+    });
   }
  
-  if (allRows.length === 0) {
-    return res.status(200).json({ success: false, rows: 0, date: dateStr, message: 'Sem dados', errors });
-  }
- 
-  // 2. Busca instagram_permalink_url em batch (uma única chamada para todos os ad_ids)
-  try {
-    const adIds = [...new Set(allRows.map(r => r.ad_id))].join(',');
-    const permalinkUrl = `https://graph.facebook.com/v19.0/?ids=${adIds}&fields=instagram_permalink_url,creative{instagram_permalink_url}&access_token=${token}`;
-    const permalinkRes = await fetch(permalinkUrl);
-    const permalinkData = await permalinkRes.json();
- 
-    if (!permalinkData.error) {
-      for (const row of allRows) {
-        const adData = permalinkData[row.ad_id];
-        if (adData?.instagram_permalink_url) {
-          row.instagram_url = adData.instagram_permalink_url;
-        } else if (adData?.creative?.instagram_permalink_url) {
-          row.instagram_url = adData.creative.instagram_permalink_url;
-        }
-      }
-    }
-  } catch (e) {
-    errors.push({ step: 'permalink_batch', error: e.message });
-  }
- 
-  // 3. Salva no Supabase
-  const insert = await fetch(`${supabaseUrl}/rest/v1/meta_ads`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'apikey': supabaseKey,
-      'Authorization': `Bearer ${supabaseKey}`,
-      'Prefer': 'resolution=merge-duplicates,return=minimal'
-    },
-    body: JSON.stringify(allRows)
-  });
- 
-  if (insert.ok) {
-    res.status(200).json({ success: true, rows: allRows.length, date: dateStr, errors });
-  } else {
-    const err = await insert.text();
-    res.status(500).json({ success: false, error: err, rows: allRows.length });
-  }
+  res.status(200).json({ date: dateStr, results });
 }
