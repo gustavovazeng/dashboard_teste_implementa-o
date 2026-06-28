@@ -3,7 +3,7 @@ export default async function handler(req, res) {
   const token = process.env.META_ACCESS_TOKEN;
   const supabaseUrl = process.env.SUPABASE_URL;
   const supabaseKey = process.env.SUPABASE_ANON_KEY;
-  const fields = 'date_start,spend,impressions,reach,ad_id,ad_name,instagram_permalink_url,campaign_name,clicks,actions';
+  const fields = 'date_start,spend,impressions,reach,ad_id,ad_name,campaign_name,clicks,actions';
  
   // Data dinâmica: ontem (ou passe ?date=2026-06-26 na URL para testar)
   const dateParam = req.query?.date;
@@ -45,7 +45,7 @@ export default async function handler(req, res) {
           reach: parseInt(row.reach || 0),
           ad_id: row.ad_id,
           ad_name: row.ad_name,
-          instagram_url: row.instagram_permalink_url || null,
+          instagram_url: null,
           landing_page_views: parseInt(landingViews),
           initiate_checkout: parseInt(initiateCheckout),
           campaign_name: row.campaign_name
