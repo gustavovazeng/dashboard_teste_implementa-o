@@ -24,38 +24,22 @@ export default async function handler(req, res) {
  
   // Testa múltiplas abordagens para pegar o link do Instagram
   const creativeRes = await fetch(
-    `https://graph.facebook.com/v19.0/?ids=${adIds}&fields=instagram_permalink_url,creative{id,instagram_permalink_url,effective_object_story_id,object_story_id}&access_token=${token}`
+    `https://graph.facebook.com/v19.0/?ids=${adIds}&fields=instagram_permalink_url,preview_shareable_link,creative{id,instagram_permalink_url,effective_object_story_id}&access_token=${token}`
   );
   const creativeData = await creativeRes.json();
  
-  // Para cada anúncio, tenta buscar o story object se tiver effective_object_story_id
   const results = [];
   for (const row of data.data) {
     const adData = creativeData[row.ad_id] || {};
     const creative = adData.creative || {};
-    const storyId = creative.effective_object_story_id || creative.object_story_id || null;
- 
-    let storyPermalink = null;
-    if (storyId) {
-      try {
-        const storyRes = await fetch(
-          `https://graph.facebook.com/v19.0/${storyId}?fields=instagram_permalink_url&access_token=${token}`
-        );
-        const storyData = await storyRes.json();
-        storyPermalink = storyData.instagram_permalink_url || null;
-      } catch (e) {}
-    }
  
     results.push({
       ad_id: row.ad_id,
       ad_name: row.ad_name,
-      // abordagem 1: direto no ad
       permalink_via_ad: adData.instagram_permalink_url || null,
-      // abordagem 2: via creative
+      preview_shareable_link: adData.preview_shareable_link || null,
       permalink_via_creative: creative.instagram_permalink_url || null,
-      // abordagem 3: via story object
-      effective_object_story_id: storyId,
-      permalink_via_story: storyPermalink
+      effective_object_story_id: creative.effective_object_story_id || null,
     });
   }
  
