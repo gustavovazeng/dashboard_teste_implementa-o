@@ -438,20 +438,39 @@ function em(val,meta,higher){
 }
 
 // ── CSV parser ────────────────────────────────────────────────────────────
+// Parser CSV RFC4180: NÃO faz split por linha antes de interpretar aspas — campos entre aspas
+// podem conter vírgulas E quebras de linha (comum em respostas de texto livre de formulário).
+// Um split ingênuo por "\n" corromperia essas linhas e as seguintes. Aqui o texto inteiro é
+// varrido caractere a caractere, controlando o estado "dentro de aspas" continuamente.
 function parseCSVText(text){
-  const lines=text.split(/\r?\n/);
   const result=[];
-  for(const line of lines){
-    if(!line.trim()) continue;
-    const row=[];let cur="";let inQ=false;
-    for(let i=0;i<line.length;i++){
-      const c=line[i];
-      if(c==='"'){if(inQ&&line[i+1]==='"'){cur+='"';i++;}else inQ=!inQ;}
-      else if(c===','&&!inQ){row.push(cur);cur="";}
-      else cur+=c;
+  let row=[], cur="", inQ=false;
+  const n=text.length;
+  for(let i=0;i<n;i++){
+    const c=text[i];
+    if(inQ){
+      if(c==='"'){
+        if(text[i+1]==='"'){cur+='"';i++;}
+        else inQ=false;
+      } else {
+        cur+=c;
+      }
+      continue;
     }
+    if(c==='"'){ inQ=true; }
+    else if(c===','){ row.push(cur); cur=""; }
+    else if(c==='\r'){ /* ignora — quebra tratada no \n */ }
+    else if(c==='\n'){
+      row.push(cur); cur="";
+      if(row.some(f=>f.trim()!=="")) result.push(row);
+      row=[];
+    } else {
+      cur+=c;
+    }
+  }
+  if(cur!==""||row.length>0){
     row.push(cur);
-    result.push(row);
+    if(row.some(f=>f.trim()!=="")) result.push(row);
   }
   return {values:result};
 }
