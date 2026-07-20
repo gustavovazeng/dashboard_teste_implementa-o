@@ -437,70 +437,29 @@ function em(val,meta,higher){
   if(ratio>=1)return "🟢";if(ratio>=0.85)return "🟡";return "🔴";
 }
 
-// ── CSV parser ────────────────────────────────────────────────────────────
-// Parser CSV RFC4180: NÃO faz split por linha antes de interpretar aspas — campos entre aspas
-// podem conter vírgulas E quebras de linha (comum em respostas de texto livre de formulário).
-// Um split ingênuo por "\n" corromperia essas linhas e as seguintes. Aqui o texto inteiro é
-// varrido caractere a caractere, controlando o estado "dentro de aspas" continuamente.
-// Trata \r, \n ou \r\n como fim de linha (fora de aspas) — o export do Google Sheets nem sempre
-// usa o mesmo caractere que uma quebra de linha digitada dentro de uma resposta de texto livre
-// (uma pode ser \r\n e a outra \n, ou vice-versa). Dentro de aspas, qualquer variante de quebra
-// vira um \n normal no valor do campo, sem fechar a linha.
-function parseCSVText(text){
-  const result=[];
-  let row=[], cur="", inQ=false;
-  const n=text.length;
-  let i=0;
-  while(i<n){
-    const c=text[i];
-    if(inQ){
-      if(c==='"'){
-        if(text[i+1]==='"'){cur+='"';i+=2;continue;}
-        inQ=false; i++; continue;
-      }
-      if(c==='\r'){ cur+="\n"; i+=(text[i+1]==='\n')?2:1; continue; }
-      cur+=c; i++; continue;
-    }
-    if(c==='"'){ inQ=true; i++; continue; }
-    if(c===','){ row.push(cur); cur=""; i++; continue; }
-    if(c==='\r'||c==='\n'){
-      row.push(cur); cur="";
-      if(row.some(f=>f.trim()!=="")) result.push(row);
-      row=[];
-      i+=(c==='\r'&&text[i+1]==='\n')?2:1;
-      continue;
-    }
-    cur+=c; i++;
-  }
-  if(cur!==""||row.length>0){
-    row.push(cur);
-    if(row.some(f=>f.trim()!=="")) result.push(row);
-  }
-  return {values:result};
-}
-function parseSheet(json){
-  const rows=json.values||[];if(rows.length<2)return[];
-  // Cabeçalhos: remove BOM (comum em export UTF-8 do Sheets) e espaços extras, senão
-  // r["utm_source"] etc. podem vir undefined mesmo com a coluna existindo na planilha.
-  const h=rows[0].map((k,i)=>{
-    let kk=(k||"").trim();
-    if(i===0) kk=kk.replace(/^﻿/,"");
-    return kk;
-  });
-  return rows.slice(1).map(r=>Object.fromEntries(h.map((k,i)=>[k,(r[i]||"").trim()])));
-}
 // ── Load data (Google Sheets ao vivo) ──────────────────────────────────────
+// Usamos o endpoint gviz "out:json" (Google Visualization API), NÃO "out:csv".
+// Motivo: o export out:csv do gviz não escapa de forma confiável quebras de linha
+// embutidas em células de texto livre (respostas de formulário), o que corrompe o
+// parsing CSV mesmo com um parser RFC4180 correto (confirmado: o CSV baixado
+// manualmente parseia certo, mas o texto retornado pelo endpoint ao vivo vinha
+// truncado/concatenado — sintoma de uma serialização diferente na origem, não do
+// nosso parser). O formato JSON do gviz não tem essa ambiguidade: cada célula já
+// vem como um valor JSON delimitado (nunca depende de vírgula/aspas/quebra de linha
+// para separar campos), então esse problema desaparece por completo.
 const SHEET_ID = "17cGj1d1k9sUxMi4bpsyfXI_ha3voP2d08jFm_QnjEvk";
 const SHEET_META_NAME = "Base meta - consultoria";
 const SHEET_FORM_NAME = "Base formulário - consultoria";
-const sheetURL = n => `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(n)}`;
+const sheetJsonURL = n => `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(n)}`;
 
-async function fetchSheetText(name){
+// Busca uma aba e devolve um array de objetos {cabeçalho: valor}, já no mesmo formato
+// que o resto do código espera (equivalente ao antigo parseSheet(parseCSVText(csv))).
+async function fetchSheetRows(name){
   const ctrl=new AbortController();
   const timer=setTimeout(()=>ctrl.abort(),20000); // 20s timeout
   let res;
   try{
-    res=await fetch(sheetURL(name),{cache:"no-cache",signal:ctrl.signal});
+    res=await fetch(sheetJsonURL(name),{cache:"no-cache",signal:ctrl.signal});
   }catch(fetchErr){
     clearTimeout(timer);
     if(fetchErr.name==="AbortError") throw new Error(`Timeout ao buscar "${name}" — planilha demorou mais de 20s`);
@@ -510,26 +469,57 @@ async function fetchSheetText(name){
   if(!res.ok) throw new Error(`Erro ${res.status} ao buscar "${name}" — verifique se a planilha está pública ("Qualquer pessoa com o link" → Leitor)`);
   const text=await res.text();
   if(!text||text.trim().length<10) throw new Error(`Resposta vazia para "${name}"`);
-  console.log(`[sheets] "${name}" OK — ${text.length} chars`);
-  return text;
+  // A resposta vem embrulhada em JSONP: google.visualization.Query.setResponse({...});
+  const m=/google\.visualization\.Query\.setResponse\(([\s\S]*)\);?\s*$/.exec(text.trim());
+  if(!m) throw new Error(`Formato inesperado da resposta do Google Sheets para "${name}" (não é gviz JSON)`);
+  let json;
+  try{ json=JSON.parse(m[1]); }
+  catch(e){ throw new Error(`Não consegui interpretar o JSON do Google Sheets para "${name}": ${e.message}`); }
+  if(json.status==="error"){
+    const msg=(json.errors&&json.errors[0]&&json.errors[0].detailed_message)||"erro desconhecido";
+    throw new Error(`Google Sheets retornou erro para "${name}": ${msg}`);
+  }
+  const table=json.table||{cols:[],rows:[]};
+  // Cabeçalhos: o gviz usa a 1ª linha da planilha como "label" de cada coluna quando
+  // detecta um cabeçalho de texto. Removemos BOM/espaços por segurança.
+  const headers=(table.cols||[]).map((c,i)=>{
+    let kk=(c.label||c.id||"").trim();
+    if(i===0) kk=kk.replace(/^﻿/,"");
+    return kk;
+  });
+  const rows=(table.rows||[]).map(r=>{
+    const obj={};
+    (r.c||[]).forEach((cell,i)=>{
+      const key=headers[i]; if(!key)return;
+      // Preferimos o valor formatado ("f", texto exibido na planilha — ex.: data
+      // "8/19/2025", moeda "R$ 1.234,56") por ser o que nosso parsing (toISO/parseBRL)
+      // já sabe interpretar. Caindo pro valor bruto ("v") se não houver formatado.
+      let val="";
+      if(cell){
+        if(cell.f!=null) val=String(cell.f);
+        else if(cell.v!=null) val=String(cell.v);
+      }
+      obj[key]=val.trim();
+    });
+    return obj;
+  });
+  console.log(`[sheets] "${name}" OK — ${rows.length} linhas`);
+  return rows;
 }
 
-// Processa os dois CSVs (texto bruto, vindos do Google Sheets) e popula o state S.
-function processData(mText, lText){
-    const mj=parseCSVText(mText), lj=parseCSVText(lText);
-    console.log(`[csv] Meta: ${mj.values.length-1} linhas | Formulário: ${lj.values.length-1} linhas`);
-    // Diagnóstico — ajuda a identificar se os cabeçalhos/valores vieram diferentes do esperado
-    // (ex.: planilha do Sheets com nomes de coluna ou formato de data diferentes do CSV original).
-    if(mj.values[0])console.log("[diag] cabeçalhos Meta:",mj.values[0]);
-    if(lj.values[0])console.log("[diag] cabeçalhos Formulário:",lj.values[0]);
-    if(lj.values[1]){
-      const sampleRow=Object.fromEntries(lj.values[0].map((k,i)=>[k,lj.values[1][i]]));
-      console.log("[diag] 1ª linha Formulário — Data:",JSON.stringify(sampleRow["Data"]),"| utm_source:",JSON.stringify(sampleRow["utm_source"]),"| utm_medium:",JSON.stringify(sampleRow["utm_medium"]));
+// Processa as duas abas (já como arrays de objetos, vindos do gviz JSON) e popula o state S.
+function processData(mRows, lRows){
+    console.log(`[sheets] Meta: ${mRows.length} linhas | Formulário: ${lRows.length} linhas`);
+    // Diagnóstico — ajuda a identificar se os cabeçalhos/valores vieram diferentes do esperado.
+    if(mRows[0])console.log("[diag] cabeçalhos Meta:",Object.keys(mRows[0]));
+    if(lRows[0])console.log("[diag] cabeçalhos Formulário:",Object.keys(lRows[0]));
+    if(lRows[0]){
+      console.log("[diag] 1ª linha Formulário — Data:",JSON.stringify(lRows[0]["Data"]),"| utm_source:",JSON.stringify(lRows[0]["utm_source"]),"| utm_medium:",JSON.stringify(lRows[0]["utm_medium"]));
     }
 
     // ── Mapa de campanhas (id → nome / tipo quente|frio) ────────────────
     const campIdToName={}, campIdToTipo={};
-    for(const r of parseSheet(mj)){
+    for(const r of mRows){
       const cid=(r["Campaign ID"]||"").trim();
       const cn=(r["Campaign Name"]||"").trim();
       if(!cid||!cn)continue;
@@ -544,7 +534,7 @@ function processData(mText, lText){
     // ── Processa Meta Ads (todo o CSV) ──────────────────────────────────
     const mD={}, mByAd={}, mByAdByDate={}, mByCamp={}, mByCampByDate={};
     const mTipo={quente:{},frio:{}};
-    for(const r of parseSheet(mj)){
+    for(const r of mRows){
       const d=toISO(r["Date"]);if(!d)continue;
       const campName=(r["Campaign Name"]||"").trim();
 
@@ -608,7 +598,7 @@ function processData(mText, lText){
     const construiuCount={}, guardadoCount={}, dificuldadeCount={}, classificacaoCount={};
     const sourceCount={};
     const lByAdId={}, lByCamp={};
-    for(const r of parseSheet(lj)){
+    for(const r of lRows){
       const d=toISO(r["Data"]);if(!d)continue;
       const utmSource=(r["utm_source"]||"").trim();
       const isPaid=utmSource.toUpperCase().includes("FBADS");
@@ -676,11 +666,11 @@ function processData(mText, lText){
 async function loadData(force=false){
   S.loading=true; S.error=null; render();
   try{
-    const [mText, lText] = await Promise.all([
-      fetchSheetText(SHEET_META_NAME),
-      fetchSheetText(SHEET_FORM_NAME),
+    const [mRows, lRows] = await Promise.all([
+      fetchSheetRows(SHEET_META_NAME),
+      fetchSheetRows(SHEET_FORM_NAME),
     ]);
-    processData(mText, lText);
+    processData(mRows, lRows);
   }catch(e){
     console.error(e);
     S.error="Erro ao carregar dados: "+e.message;
