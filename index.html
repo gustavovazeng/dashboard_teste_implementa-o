@@ -390,7 +390,14 @@ function fDate(iso){ if(!iso)return"";const[,m,d]=iso.split("-");return `${d}/${
 function fDateBR(iso){ if(!iso)return"";const[y,m,d]=iso.split("-");return `${d}/${m}/${y}`; }
 function toISO(s){
   if(!s||s==="Date"||s==="")return null;
-  s=String(s).trim().split(" ")[0];
+  s=String(s).trim();
+  // Google Sheets/gviz às vezes serializa datas como Date(YYYY,M,D) (mês 0-indexado)
+  const dLit=/^Date\((\d+),(\d+),(\d+)/.exec(s);
+  if(dLit){
+    const[,y,m,day]=dLit;
+    return `${y}-${String(parseInt(m,10)+1).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
+  }
+  s=s.split(/[ T]/)[0]; // corta hora, aceita separador " " ou "T" (ISO datetime)
   if(/^\d{4}-\d{2}-\d{2}$/.test(s))return s;
   const p=s.split("/");
   if(p.length===3){
@@ -450,7 +457,13 @@ function parseCSVText(text){
 }
 function parseSheet(json){
   const rows=json.values||[];if(rows.length<2)return[];
-  const h=rows[0];
+  // Cabeçalhos: remove BOM (comum em export UTF-8 do Sheets) e espaços extras, senão
+  // r["utm_source"] etc. podem vir undefined mesmo com a coluna existindo na planilha.
+  const h=rows[0].map((k,i)=>{
+    let kk=(k||"").trim();
+    if(i===0) kk=kk.replace(/^﻿/,"");
+    return kk;
+  });
   return rows.slice(1).map(r=>Object.fromEntries(h.map((k,i)=>[k,(r[i]||"").trim()])));
 }
 // ── Load data (Google Sheets ao vivo) ──────────────────────────────────────
@@ -482,6 +495,14 @@ async function fetchSheetText(name){
 function processData(mText, lText){
     const mj=parseCSVText(mText), lj=parseCSVText(lText);
     console.log(`[csv] Meta: ${mj.values.length-1} linhas | Formulário: ${lj.values.length-1} linhas`);
+    // Diagnóstico — ajuda a identificar se os cabeçalhos/valores vieram diferentes do esperado
+    // (ex.: planilha do Sheets com nomes de coluna ou formato de data diferentes do CSV original).
+    if(mj.values[0])console.log("[diag] cabeçalhos Meta:",mj.values[0]);
+    if(lj.values[0])console.log("[diag] cabeçalhos Formulário:",lj.values[0]);
+    if(lj.values[1]){
+      const sampleRow=Object.fromEntries(lj.values[0].map((k,i)=>[k,lj.values[1][i]]));
+      console.log("[diag] 1ª linha Formulário — Data:",JSON.stringify(sampleRow["Data"]),"| utm_source:",JSON.stringify(sampleRow["utm_source"]),"| utm_medium:",JSON.stringify(sampleRow["utm_medium"]));
+    }
 
     // ── Mapa de campanhas (id → nome / tipo quente|frio) ────────────────
     const campIdToName={}, campIdToTipo={};
