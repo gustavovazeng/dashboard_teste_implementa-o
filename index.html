@@ -442,31 +442,35 @@ function em(val,meta,higher){
 // podem conter vírgulas E quebras de linha (comum em respostas de texto livre de formulário).
 // Um split ingênuo por "\n" corromperia essas linhas e as seguintes. Aqui o texto inteiro é
 // varrido caractere a caractere, controlando o estado "dentro de aspas" continuamente.
+// Trata \r, \n ou \r\n como fim de linha (fora de aspas) — o export do Google Sheets nem sempre
+// usa o mesmo caractere que uma quebra de linha digitada dentro de uma resposta de texto livre
+// (uma pode ser \r\n e a outra \n, ou vice-versa). Dentro de aspas, qualquer variante de quebra
+// vira um \n normal no valor do campo, sem fechar a linha.
 function parseCSVText(text){
   const result=[];
   let row=[], cur="", inQ=false;
   const n=text.length;
-  for(let i=0;i<n;i++){
+  let i=0;
+  while(i<n){
     const c=text[i];
     if(inQ){
       if(c==='"'){
-        if(text[i+1]==='"'){cur+='"';i++;}
-        else inQ=false;
-      } else {
-        cur+=c;
+        if(text[i+1]==='"'){cur+='"';i+=2;continue;}
+        inQ=false; i++; continue;
       }
-      continue;
+      if(c==='\r'){ cur+="\n"; i+=(text[i+1]==='\n')?2:1; continue; }
+      cur+=c; i++; continue;
     }
-    if(c==='"'){ inQ=true; }
-    else if(c===','){ row.push(cur); cur=""; }
-    else if(c==='\r'){ /* ignora — quebra tratada no \n */ }
-    else if(c==='\n'){
+    if(c==='"'){ inQ=true; i++; continue; }
+    if(c===','){ row.push(cur); cur=""; i++; continue; }
+    if(c==='\r'||c==='\n'){
       row.push(cur); cur="";
       if(row.some(f=>f.trim()!=="")) result.push(row);
       row=[];
-    } else {
-      cur+=c;
+      i+=(c==='\r'&&text[i+1]==='\n')?2:1;
+      continue;
     }
+    cur+=c; i++;
   }
   if(cur!==""||row.length>0){
     row.push(cur);
