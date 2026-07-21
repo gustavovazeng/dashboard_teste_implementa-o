@@ -417,6 +417,31 @@ function toISO(s){
 }
 function stripTime(s){ if(!s)return s;return String(s).trim().split(" ")[0]; }
 
+// A coluna "Data" do formulário vem do CRM 3h à frente do horário de Brasília (ex.: alguém
+// que se cadastrou às 23h de um dia aparece no CRM como 02h do dia seguinte). Subtrai 3h do
+// horário ANTES de extrair a data, pra atribuir a ficha ao dia certo (BRT), em vez de usar a
+// data "crua" do CRM como o toISO() genérico faz. Se não conseguir ler hora (formato
+// inesperado), cai pro toISO() normal sem ajuste, como rede de segurança.
+function toISOFormData(s){
+  if(!s||s==="Data"||s==="")return null;
+  s=String(s).trim();
+  const dLit=/^Date\((\d+),(\d+),(\d+)(?:,(\d+),(\d+),(\d+))?\)?/.exec(s);
+  let y,mo,d,h=0,mi=0,se=0;
+  if(dLit){
+    y=+dLit[1]; mo=+dLit[2]; d=+dLit[3]; // mês já vem 0-indexado no literal Date(...)
+    h=+(dLit[4]||0); mi=+(dLit[5]||0); se=+(dLit[6]||0);
+  }else{
+    const m=/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?/.exec(s);
+    if(!m) return toISO(s);
+    y=+m[1]; mo=+m[2]-1; d=+m[3];
+    h=+(m[4]||0); mi=+(m[5]||0); se=+(m[6]||0);
+  }
+  const t=Date.UTC(y,mo,d,h,mi,se)-3*60*60*1000; // -3h, aritmética em UTC (sem depender do fuso do navegador)
+  const dt=new Date(t);
+  const yy=dt.getUTCFullYear(), mm=String(dt.getUTCMonth()+1).padStart(2,"0"), dd=String(dt.getUTCDate()).padStart(2,"0");
+  return `${yy}-${mm}-${dd}`;
+}
+
 // ── Status helpers ────────────────────────────────────────────────────────
 function statusColor(val,meta,higherIsBetter){
   if(!val||val===0)return "#8a96ab";
@@ -629,7 +654,7 @@ function processData(mRows, lRows){
     const sourceCount={};
     const lByAdId={}, lByCamp={};
     for(const r of lRows){
-      const d=toISO(r["Data"]);if(!d)continue;
+      const d=toISOFormData(r["Data"]);if(!d)continue;
       const utmSource=(r["utm_source"]||"").trim();
       const isFBAds=utmSource.toUpperCase().includes("FBADS");
       const isEmpty=utmSource==="";
