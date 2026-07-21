@@ -617,8 +617,9 @@ function processData(mRows, lRows){
     // ── Processa Formulário (leads) ──────────────────────────────────────
     // utm_medium: "{nome-campanha}_id_{campaignId}"  → id da campanha
     // utm_content: "{nome-anuncio}_id_{adId}::{fbclid}" → id do anúncio
-    // Tráfego pago = utm_source contém "FBAds". Todo o resto (bio, wpp, ytb, biothreads,
-    // storyWilker, sem UTM, etc.) é considerado orgânico.
+    // Tráfego pago = utm_source contém "FBAds" OU está vazio (fichas sem UTM também contam
+    // como tráfego). Qualquer outro valor de utm_source (bio, wpp, ytb, biothreads,
+    // storyWilker, etc.) é considerado orgânico.
     const medRe=/_id_(\d+)$/;
     const contRe=/_id_(\d{8,})/;
     const lD={};
@@ -630,13 +631,16 @@ function processData(mRows, lRows){
     for(const r of lRows){
       const d=toISO(r["Data"]);if(!d)continue;
       const utmSource=(r["utm_source"]||"").trim();
-      const isPaid=utmSource.toUpperCase().includes("FBADS");
+      const isFBAds=utmSource.toUpperCase().includes("FBADS");
+      const isEmpty=utmSource==="";
+      const isPaid=isFBAds||isEmpty;
 
       if(!lD[d])lD[d]={traffic:0,organic:0};
       if(isPaid)lD[d].traffic++; else lD[d].organic++;
 
-      // Origem (UTM) — todas as fichas, pago agrupado como "FBAds"
-      const srcLabel=isPaid?"FBAds":(utmSource||"Sem UTM");
+      // Origem (UTM) — todas as fichas; "FBAds" agrupa as variações, "Sem UTM" fica à parte
+      // (mesmo contando como tráfego na métrica acima)
+      const srcLabel=isFBAds?"FBAds":(utmSource||"Sem UTM");
       sourceCount[srcLabel]=(sourceCount[srcLabel]||0)+1;
 
       // Qualificações do formulário — todas as fichas (pagas + orgânicas)
