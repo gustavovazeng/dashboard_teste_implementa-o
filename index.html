@@ -299,13 +299,14 @@ input[type=date]::-webkit-calendar-picker-indicator{opacity:.4;cursor:pointer;fi
 // ══════════════════════════════════════════════════════════════════════════
 // Dashboard Cristiano — Sessão Estratégica
 // Adaptado do modelo "Dashboard TMR Saúde" (mesma arquitetura/visual),
-// usando como fonte os CSVs estáticos locais:
-//   - Base dash - consultoria - Base meta - consultoria.csv   (anúncios Meta)
-//   - Base dash - consultoria - Base formulário - consultoria.csv (formulário/leads)
-// Funil ativo: "Sessão Estratégica" (campanhas Meta cujo nome começa com
-// "sessao_estrat"). Outras campanhas presentes nos CSVs (ex.: "cons_gratui-*")
-// pertencem a outra oferta e ficam de fora — preparado para virar um 2º funil
-// no futuro (ver CONTEXT.md).
+// lendo os dados AO VIVO da planilha do Google Sheets (aba "Base meta -
+// consultoria" para anúncios Meta, aba "Base formulário - consultoria" para
+// leads) via o endpoint gviz (ver bloco "Google Sheets (ao vivo)" abaixo).
+// A planilha precisa estar compartilhada como pública ("Qualquer pessoa com
+// o link" → Leitor) — sem isso o fetch() falha e aparece um erro no painel.
+// Funil ativo: "Sessão Estratégica". Todo o gasto e todos os formulários da
+// planilha pertencem a este único funil — não há filtro por nome/prefixo de
+// campanha (ver CONTEXT.md).
 // ══════════════════════════════════════════════════════════════════════════
 
 // ── Metas Sessão Estratégica ────────────────────────────────────────────────
@@ -437,126 +438,94 @@ function em(val,meta,higher){
   if(ratio>=1)return "🟢";if(ratio>=0.85)return "🟡";return "🔴";
 }
 
-// ── Load data (Google Sheets ao vivo) ──────────────────────────────────────
-// Usamos o endpoint gviz "out:json" (Google Visualization API).
-//
-// IMPORTANTE — motivo de buscar por PÁGINAS (range=) em vez de pedir a aba inteira
-// de uma vez: descobrimos (testando o endpoint ao vivo diretamente) que pedir a
-// planilha inteira sem um parâmetro "range" faz o Google truncar a resposta depois
-// de um certo tamanho — e em vez de simplesmente cortar limpo, a linha final da
-// resposta truncada vem com um monte de valores de várias linhas diferentes
-// grudados numa célula só (foi exatamente esse lixo que aparecia nos logs
-// "[diag] cabeçalhos Formulário" corrompidos). Os dados da planilha em si estão
-// certos (conferido célula a célula) — o problema é só desse jeito específico de
-// pedir "a aba toda" de uma vez. Pedindo em pedaços menores com "range=A1:V60" etc.
-// (testado e confirmado limpo, inclusive bem além do fim dos dados reais, que
-// devolve uma resposta vazia sem erro) o problema desaparece.
+// ── Google Sheets (ao vivo) ─────────────────────────────────────────────
+// Os dados vêm direto da planilha do Google Sheets via endpoint gviz (API de
+// visualização), formato out:json (JSONP). Usamos out:json em vez de out:csv
+// porque o out:csv não é confiável para células com texto multi-linha (ver
+// CONTEXT.md, "3º bug"). A busca é paginada em pedaços pequenos (range=) em
+// vez de pedir a aba inteira de uma vez, porque pedir tudo de uma vez também
+// se mostrou instável em planilhas grandes (ver diagnostico.html).
 const SHEET_ID = "17cGj1d1k9sUxMi4bpsyfXI_ha3voP2d08jFm_QnjEvk";
 const SHEET_META_NAME = "Base meta - consultoria";
 const SHEET_FORM_NAME = "Base formulário - consultoria";
-const SHEET_META_LASTCOL = 14; // Date..Publisher Platform (Breakdown) = 14 colunas (A..N)
-const SHEET_FORM_LASTCOL = 22; // m..variacao = 22 colunas (A..V)
+const SHEET_META_LASTCOL = 14;  // Date .. Publisher Platform (Breakdown)
+const SHEET_FORM_LASTCOL = 22;  // m .. variacao
 
-// Converte índice de coluna (1-based) pra letra do Sheets: 1→A, 26→Z, 27→AA...
 function colLetter(n){
   let s="";
   while(n>0){ const rem=(n-1)%26; s=String.fromCharCode(65+rem)+s; n=Math.floor((n-1)/26); }
   return s;
 }
-
-// Busca um intervalo (range) específico de uma aba via gviz out:json. Trata qualquer
-// resposta vazia/inesperada/erro como "sem dados nesse intervalo" (não lança erro) —
-// isso é o que acontece normalmente quando o range pedido vai além do fim real dos
-// dados, e usamos exatamente esse sinal pra saber quando parar de paginar.
-async function fetchGvizRange(name,range){
+function gvizUrl(name,extra){
+  return `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(name)}${extra||""}`;
+}
+async function fetchRaw(url){
   const ctrl=new AbortController();
   const timer=setTimeout(()=>ctrl.abort(),20000);
-  const url=`https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(name)}&range=${encodeURIComponent(range)}`;
   let res;
-  try{
-    res=await fetch(url,{cache:"no-cache",signal:ctrl.signal});
-  }catch(fetchErr){
-    clearTimeout(timer);
-    if(fetchErr.name==="AbortError") throw new Error(`Timeout ao buscar "${name}" (${range}) — planilha demorou mais de 20s`);
-    throw new Error(`Falha de rede ao buscar "${name}" (${range}): ${fetchErr.message}`);
-  }
+  try{ res=await fetch(url,{cache:"no-cache",signal:ctrl.signal}); }
+  catch(e){ clearTimeout(timer); throw new Error("Falha de rede: "+e.message); }
   clearTimeout(timer);
-  if(!res.ok) throw new Error(`Erro ${res.status} ao buscar "${name}" — verifique se a planilha está pública ("Qualquer pessoa com o link" → Leitor)`);
-  const text=await res.text();
+  if(!res.ok) throw new Error("Erro HTTP "+res.status+" — confira se a planilha está pública (\"Qualquer pessoa com o link\" → Leitor)");
+  return await res.text();
+}
+function parseGvizText(text){
   if(!text||text.trim().length===0) return {cols:[],rows:[]};
   const m=/google\.visualization\.Query\.setResponse\(([\s\S]*)\);?\s*$/.exec(text.trim());
-  if(!m) return {cols:[],rows:[]};
+  if(!m) return {cols:[],rows:[],parseFail:true};
   let json;
-  try{ json=JSON.parse(m[1]); }
-  catch(e){ return {cols:[],rows:[]}; }
-  if(json.status==="error") return {cols:[],rows:[]};
+  try{ json=JSON.parse(m[1]); }catch(e){ return {cols:[],rows:[],parseFail:true}; }
+  if(json.status==="error"){
+    const msg=(json.errors&&json.errors[0]&&json.errors[0].detailed_message)||"erro desconhecido";
+    return {cols:[],rows:[],errorMsg:msg};
+  }
   return json.table||{cols:[],rows:[]};
 }
+function cellVal(cell){
+  if(!cell) return "";
+  if(cell.f!=null) return String(cell.f);
+  if(cell.v!=null) return String(cell.v);
+  return "";
+}
+async function fetchGvizRange(name,range){
+  const text=await fetchRaw(gvizUrl(name,`&range=${encodeURIComponent(range)}`));
+  const t=parseGvizText(text);
+  if(t.errorMsg) throw new Error(`Google Sheets ("${name}"): `+t.errorMsg);
+  if(t.parseFail) throw new Error(`Resposta inesperada do Google Sheets pra aba "${name}" (não veio JSON válido).`);
+  return t;
+}
+// Busca uma aba inteira, paginada em pedaços pequenos e em paralelo (evita o
+// truncamento/corrupção que acontecia pedindo a aba inteira de uma vez só).
+async function fetchSheetRows(name,lastColNum){
+  const lastCol=colLetter(lastColNum);
+  const CHUNK=lastColNum>=20?60:150;
+  const PARALLEL=8;
 
-// Busca uma aba inteira, paginando em pedaços pequenos (range=) pra nunca disparar o
-// truncamento/corrupção do gviz descrito acima, e devolve um array de objetos
-// {cabeçalho: valor} — mesmo formato que o resto do código (processData) espera.
-async function fetchSheetRows(name,lastColIndex){
-  const lastCol=colLetter(lastColIndex);
-  // Linhas mais largas (mais colunas / textos livres) → lotes menores, com boa margem
-  // de segurança abaixo do tamanho que disparou o truncamento nos testes (~60-70KB).
-  const CHUNK=lastColIndex>=20?60:150;
-  const PARALLEL=8; // requisições simultâneas por "onda" de paginação
-
-  function rowsToObjects(headers,tableRows){
-    return (tableRows||[]).map(r=>{
-      const obj={};
-      (r.c||[]).forEach((cell,i)=>{
-        const key=headers[i]; if(!key)return;
-        // Preferimos o valor formatado ("f", texto exibido na planilha — ex.: data
-        // "8/19/2025", moeda "R$ 1.234,56") por ser o que nosso parsing (toISO/parseBRL)
-        // já sabe interpretar. Caindo pro valor bruto ("v") se não houver formatado.
-        let val="";
-        if(cell){
-          if(cell.f!=null) val=String(cell.f);
-          else if(cell.v!=null) val=String(cell.v);
-        }
-        obj[key]=val.trim();
-      });
-      return obj;
-    }).filter(o=>Object.values(o).some(v=>v!==""));
-  }
-
-  // 1º lote: inclui a linha 1 (cabeçalho) + as primeiras CHUNK linhas de dados —
-  // precisa de um intervalo com várias linhas de dados pro gviz conseguir detectar
-  // que a linha 1 é cabeçalho (testado: um range de 1 linha só não garante isso).
   const first=await fetchGvizRange(name,`A1:${lastCol}${1+CHUNK}`);
-  if(!first.cols||!first.cols.length) throw new Error(`Não recebi cabeçalhos para "${name}" — confira o nome da aba e se a planilha está pública`);
-  const headers=first.cols.map((c,i)=>{
-    let kk=(c.label||c.id||"").trim();
-    if(i===0) kk=kk.replace(/^﻿/,"");
-    return kk;
-  });
-  let allRows=rowsToObjects(headers,first.rows);
+  if(!first.cols||!first.cols.length) throw new Error(`Não recebi cabeçalhos da aba "${name}" — confira o nome da aba e se a planilha está pública.`);
+  const headers=first.cols.map(c=>(c.label||c.id||"").trim());
+  let allRows=(first.rows||[]).filter(r=>(r.c||[]).some(c=>cellVal(c)!==""));
 
-  // Lotes seguintes (sem cabeçalho, começando na linha 2+CHUNK em diante), em ondas
-  // de até PARALLEL requisições simultâneas, até uma onda inteira vir vazia.
   let nextStart=2+CHUNK;
   while(true){
     const wave=[];
     for(let i=0;i<PARALLEL;i++){
       const s=nextStart+i*CHUNK, e=s+CHUNK-1;
-      wave.push(fetchGvizRange(name,`A${s}:${lastCol}${e}`));
+      wave.push(fetchGvizRange(name,`A${s}:${lastCol}${e}`).catch(()=>({rows:[]})));
     }
     const results=await Promise.all(wave);
     let anyRows=false;
     for(const table of results){
-      const objs=rowsToObjects(headers,table.rows);
-      if(objs.length>0){ anyRows=true; allRows.push(...objs); }
+      const rows=(table.rows||[]).filter(r=>(r.c||[]).some(c=>cellVal(c)!==""));
+      if(rows.length>0){ anyRows=true; allRows.push(...rows); }
     }
     nextStart+=PARALLEL*CHUNK;
-    if(!anyRows)break; // onda inteira vazia → chegamos ao fim real dos dados
+    if(!anyRows) break;
   }
-  console.log(`[sheets] "${name}" OK — ${allRows.length} linhas`);
-  return allRows;
+  return allRows.map(r=>Object.fromEntries(headers.map((h,i)=>[h,cellVal(r.c[i])])));
 }
 
-// Processa as duas abas (já como arrays de objetos, vindos do gviz JSON) e popula o state S.
+// Processa as duas abas (já como arrays de objetos, vindos do Google Sheets ao vivo) e popula o state S.
 function processData(mRows, lRows){
     console.log(`[sheets] Meta: ${mRows.length} linhas | Formulário: ${lRows.length} linhas`);
     // Diagnóstico — ajuda a identificar se os cabeçalhos/valores vieram diferentes do esperado.
@@ -715,7 +684,7 @@ function processData(mRows, lRows){
 async function loadData(force=false){
   S.loading=true; S.error=null; render();
   try{
-    const [mRows, lRows] = await Promise.all([
+    const [mRows,lRows]=await Promise.all([
       fetchSheetRows(SHEET_META_NAME,SHEET_META_LASTCOL),
       fetchSheetRows(SHEET_FORM_NAME,SHEET_FORM_LASTCOL),
     ]);
