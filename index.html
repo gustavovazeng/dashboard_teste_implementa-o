@@ -487,8 +487,19 @@ function cellVal(cell){
   if(cell.v!=null) return String(cell.v);
   return "";
 }
-async function fetchGvizRange(name,range){
-  const text=await fetchRaw(gvizUrl(name,`&range=${encodeURIComponent(range)}`));
+// headersCount: quantas linhas do range devem ser tratadas como cabeçalho (0 ou 1).
+// Sem isso, o Google TENTA adivinhar se a 1ª linha do range é cabeçalho comparando
+// os tipos de dado das colunas — e erra em abas quase totalmente texto (ex.: a
+// aba "Base formulário", que é e-mail/whatsapp/respostas de texto livre): ele não
+// acha diferença de tipo entre a "linha de cabeçalho" e as linhas de dado, decide
+// que não há cabeçalho, e devolve os nomes de coluna como letras genéricas
+// (A, B, C...) em vez dos nomes reais — quebrando toda leitura por nome de campo
+// (r["Data"], r["utm_source"] etc. viram undefined, e processData() descarta a
+// linha inteira). Forçar headers=1 na 1ª página (que tem a linha 1 de verdade) e
+// headers=0 nas páginas seguintes (que não têm linha de cabeçalho nenhuma) resolve
+// isso de vez, sem depender do palpite do Google.
+async function fetchGvizRange(name,range,headersCount){
+  const text=await fetchRaw(gvizUrl(name,`&range=${encodeURIComponent(range)}&headers=${headersCount}`));
   const t=parseGvizText(text);
   if(t.errorMsg) throw new Error(`Google Sheets ("${name}"): `+t.errorMsg);
   if(t.parseFail) throw new Error(`Resposta inesperada do Google Sheets pra aba "${name}" (não veio JSON válido).`);
@@ -501,7 +512,7 @@ async function fetchSheetRows(name,lastColNum){
   const CHUNK=lastColNum>=20?60:150;
   const PARALLEL=8;
 
-  const first=await fetchGvizRange(name,`A1:${lastCol}${1+CHUNK}`);
+  const first=await fetchGvizRange(name,`A1:${lastCol}${1+CHUNK}`,1);
   if(!first.cols||!first.cols.length) throw new Error(`Não recebi cabeçalhos da aba "${name}" — confira o nome da aba e se a planilha está pública.`);
   const headers=first.cols.map(c=>(c.label||c.id||"").trim());
   let allRows=(first.rows||[]).filter(r=>(r.c||[]).some(c=>cellVal(c)!==""));
@@ -511,7 +522,7 @@ async function fetchSheetRows(name,lastColNum){
     const wave=[];
     for(let i=0;i<PARALLEL;i++){
       const s=nextStart+i*CHUNK, e=s+CHUNK-1;
-      wave.push(fetchGvizRange(name,`A${s}:${lastCol}${e}`).catch(()=>({rows:[]})));
+      wave.push(fetchGvizRange(name,`A${s}:${lastCol}${e}`,0).catch(()=>({rows:[]})));
     }
     const results=await Promise.all(wave);
     let anyRows=false;
