@@ -321,7 +321,7 @@ const FUNIL_IGNORAR = n => false;
 const CACHE_KEY="dash_svo_v1";
 
 // Metas aba Principal
-const META_CPV=67, META_ROAS=1.00, META_TICKET=67;
+const META_CPV=67, META_CPV_TOTAL=47, META_ROAS=1.40, META_TICKET=67;
 const TAXA_IMPOSTO=1.0;
 
 // Metas aba Tráfego
@@ -2535,7 +2535,7 @@ function renderFunil(){
   const retoCount=counts["reto"]||0;
   const roasC=statusColor(roas,META_ROAS,true);
   const cpvTrafegoC=cpvTrafego>0?statusColor(cpvTrafego,META_CPV,false):"var(--text-strong)";
-  const cpvTotalC=cpvTotal>0?statusColor(cpvTotal,META_CPV,false):"var(--text-strong)";
+  const cpvTotalC=cpvTotal>0?statusColor(cpvTotal,META_CPV_TOTAL,false):"var(--text-strong)";
 
   const qtdReemb=(statusCounts["Reembolsado"]||0)+(statusCounts["Aguardando Reembolso"]||0);
   const valReemb=(statusVals["Reembolsado"]||0)+(statusVals["Aguardando Reembolso"]||0);
@@ -2583,9 +2583,9 @@ function renderFunil(){
 
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:13px;margin-bottom:20px">
       <div class="kc"><div class="kc-lbl">Vendas tráfego</div><div class="kc-val kc-val-sm">${countTrafego}</div></div>
-      <div class="kc"><div class="kc-lbl">Vendas orgânico</div><div class="kc-val kc-val-sm">${countOrganico}</div></div>
       <div class="kc" style="border-color:${statusBorder(cpvTrafego,META_CPV,false)}"><div class="kc-lbl">Custo por venda tráfego</div><div class="kc-val kc-val-sm" style="color:${cpvTrafegoC}">${cpvTrafego>0?fBRL(cpvTrafego):"—"}</div><div class="kc-sub">meta ${fBRL(META_CPV)}</div></div>
-      <div class="kc" style="border-color:${statusBorder(cpvTotal,META_CPV,false)}"><div class="kc-lbl">Custo por venda total</div><div class="kc-val kc-val-sm" style="color:${cpvTotalC}">${cpvTotal>0?fBRL(cpvTotal):"—"}</div><div class="kc-sub">meta ${fBRL(META_CPV)}</div></div>
+      <div class="kc"><div class="kc-lbl">Vendas orgânico</div><div class="kc-val kc-val-sm">${countOrganico}</div></div>
+      <div class="kc" style="border-color:${statusBorder(cpvTotal,META_CPV_TOTAL,false)}"><div class="kc-lbl">Custo por venda total</div><div class="kc-val kc-val-sm" style="color:${cpvTotalC}">${cpvTotal>0?fBRL(cpvTotal):"—"}</div><div class="kc-sub">meta ${fBRL(META_CPV_TOTAL)}</div></div>
     </div>
 
     ${(qtdReemb>0||qtdAbrt>0)?`<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:20px">
@@ -2611,13 +2611,19 @@ function renderResumo(){
   function periodMetrics(s,e){
     const daily=getDailyT(s,e);
     const t=getTotalsT(daily);
-    // faturamento (receita) do período
+    // faturamento (receita) do período — vendas de tráfego
     const dd=D();
     let valor=0;
     for(const d of Object.keys(dd.vendas).filter(d=>d>=s&&d<=e)) valor+=(dd.vendas[d]?.valor||0);
     t.valor=valor;
     t.roas=t.spend>0?valor/t.spend:0;
     t.cpv=t.vendas>0?t.spend/t.vendas:0;
+    // Vendas orgânicas do período + total (tráfego + orgânico)
+    let qtdOrganico=0;
+    for(const d of Object.keys(dd.vendasOrganico||{}).filter(d=>d>=s&&d<=e)) qtdOrganico+=((dd.vendasOrganico||{})[d]?.qtd||0);
+    t.vendasOrganico=qtdOrganico;
+    t.vendasTotal=t.vendas+qtdOrganico;
+    t.cpvTotal=t.vendasTotal>0?t.spend/t.vendasTotal:0;
     return t;
   }
 
@@ -2629,6 +2635,7 @@ function renderResumo(){
     hoje.spend=S.manualSpendHoje;
     hoje.cpv=hoje.vendas>0?hoje.spend/hoje.vendas:0;
     hoje.roas=hoje.spend>0?hoje.valor/hoje.spend:0;
+    hoje.cpvTotal=hoje.vendasTotal>0?hoje.spend/hoje.vendasTotal:0;
   }
 
   // Emoji de status
@@ -2648,22 +2655,22 @@ function renderResumo(){
 
   // Bloco de texto formatado para copiar (WhatsApp markdown)
   function block(label, m, isTotal){
-    const cpvE  =em(m.cpv,      META_CPV,          false);
-    const roasE =em(m.roas,     META_ROAS,          true);
+    const cpvE     =em(m.cpv,      META_CPV,          false);
+    const cpvTotalE=em(m.cpvTotal, META_CPV_TOTAL,    false);
     const pcE   =em(m.txPagChk, METAS_T.txPagChk.val, true);
     const cvE   =em(m.txChkVnd, METAS_T.txChkVnd.val, true);
     const cnE   =em(m.connect,  METAS_T.connect.val,  true);
     const cpcE  =em(m.cpc,      METAS_T.cpc.val,      false);
     const ctrE  =em(m.ctr,      METAS_T.ctr.val,      true);
     const cpmE  =em(m.cpm,      METAS_T.cpm.val,      false);
-    const vLabel=isTotal?"Vendas Mensal":"Vendas";
-    const cpvLabel=isTotal?"Custo por venda Mensal":"Custo por venda";
     return (
 `*-> ${label}*
 Investimento:\t${fBRL(m.spend)}\t
-${vLabel}:\t${m.vendas}\t
-${cpvLabel}:\t${fBRL(m.cpv)}\t${cpvE} R$${META_CPV}
-ROAS:\t${m.roas.toFixed(2)}\t
+Vendas tráfego:\t${m.vendas}\t
+Custo por venda tráfego:\t${fBRL(m.cpv)}\t${cpvE} R$${META_CPV}
+Vendas orgânico:\t${m.vendasOrganico}\t
+Vendas total:\t${m.vendasTotal}\t
+Custo por venda total:\t${fBRL(m.cpvTotal)}\t${cpvTotalE} R$${META_CPV_TOTAL}
 
 Tx conv PgV-Checkout:\t${m.txPagChk.toFixed(1)}%\t${pcE} ${METAS_T.txPagChk.val}%
 Tx conv Checkout-Vendas:\t${m.txChkVnd.toFixed(1)}%\t${cvE} ${METAS_T.txChkVnd.val}%
@@ -2697,16 +2704,14 @@ ${block("Hoje", hoje, false)}`;
   }
 
   function section(label, m, isTotal, isHoje=false){
-    const cpvE  =em(m.cpv,      META_CPV,                false);
-    const roasE =em(m.roas,     META_ROAS,               true);
+    const cpvE     =em(m.cpv,      META_CPV,                false);
+    const cpvTotalE=em(m.cpvTotal, META_CPV_TOTAL,           false);
     const pcE   =em(m.txPagChk, METAS_T.txPagChk.val,   true);
     const cvE   =em(m.txChkVnd, METAS_T.txChkVnd.val,   true);
     const cnE   =em(m.connect,  METAS_T.connect.val,     true);
     const cpcE  =em(m.cpc,      METAS_T.cpc.val,         false);
     const ctrE  =em(m.ctr,      METAS_T.ctr.val,         true);
     const cpmE  =em(m.cpm,      METAS_T.cpm.val,         false);
-    const vLabel=isTotal?"Vendas (período)":"Vendas";
-    const cpvLabel=isTotal?"Custo por venda":"Custo por venda";
     const isManual=isHoje&&S.manualSpendHoje!==null;
     const spendRow=isHoje?`
       <div style="display:grid;grid-template-columns:220px 1fr auto;gap:8px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.04);align-items:center">
@@ -2728,9 +2733,11 @@ ${block("Hoje", hoje, false)}`;
     <div style="background:var(--card);border:1px solid var(--border);border-radius:14px;padding:20px;margin-bottom:14px">
       <div style="font-size:13px;font-weight:700;color:var(--text-strong);margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid var(--border)">→ ${label}</div>
       ${spendRow}
-      ${row(vLabel, m.vendas, "", "")}
-      ${row(cpvLabel, fBRL(m.cpv), `meta R$${META_CPV}`, cpvE)}
-      ${row("ROAS", m.roas.toFixed(2), `meta ${META_ROAS}x`, roasE)}
+      ${row("Vendas tráfego", m.vendas, "", "")}
+      ${row("Custo por venda tráfego", fBRL(m.cpv), `meta R$${META_CPV}`, cpvE)}
+      ${row("Vendas orgânico", m.vendasOrganico, "", "")}
+      ${row("Vendas total", m.vendasTotal, "", "")}
+      ${row("Custo por venda total", fBRL(m.cpvTotal), `meta R$${META_CPV_TOTAL}`, cpvTotalE)}
       <div style="height:10px"></div>
       ${row("Tx conv PgV-Checkout", m.txPagChk.toFixed(1)+"%", `meta ${METAS_T.txPagChk.val}%`, pcE)}
       ${row("Tx conv Checkout-Vendas", m.txChkVnd.toFixed(1)+"%", `meta ${METAS_T.txChkVnd.val}%`, cvE)}
