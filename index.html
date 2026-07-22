@@ -321,17 +321,17 @@ const FUNIL_IGNORAR = n => false;
 const CACHE_KEY="dash_svo_v1";
 
 // Metas aba Principal
-const META_CPV=35, META_ROAS=1.20, META_TICKET=67;
+const META_CPV=35, META_ROAS=1.00, META_TICKET=67;
 const TAXA_IMPOSTO=1.0;
 
 // Metas aba Tráfego
 const METAS_T = {
-  cpc:      {val:0.24,  higher:false},
-  ctr:      {val:2.5,   higher:true},
-  cpm:      {val:5.96,  higher:false},
-  txPagChk: {val:5.3,   higher:true},
-  txChkVnd: {val:18.3,  higher:true},
-  connect:  {val:70,    higher:true},
+  cpc:      {val:1.38,  higher:false},
+  ctr:      {val:2.10,  higher:true},
+  cpm:      {val:29.00, higher:false},
+  txPagChk: {val:8.0,   higher:true},
+  txChkVnd: {val:30.0,  higher:true},
+  connect:  {val:85,    higher:true},
 };
 
 // Chart colors — dark mode
@@ -345,7 +345,7 @@ const S = {
   metaByAd:{}, metaByAdByDate:{}, metaByAdId:{},
   metaByCamp:{}, metaByCampByDate:{}, metaByCountry:{},
   selectedCountry:"todos",
-  vendasByAd:{}, vendasByAdDate:{},
+  vendasByAd:{}, vendasByAdDate:{}, vendasOrganico:{},
   funilRows:[], funil:{}, updated:null,
   loading:true, error:null, firstLoad:true,
   currentFunil:"reto",
@@ -582,11 +582,14 @@ function parseVendasRows(sheetJ){
     const st=normalizeVendaStatus(r["event.invoice.status"]||"");
     const content=r["event.invoice.paymentSession.utm.content"]||"";
     const adId=extractAdId(content)||"";
-    const {platform:_plat,placement:_plac}=extractPlatformPlacement(r["event.invoice.paymentSession.utm.source"]||"");
+    const utmSource=r["event.invoice.paymentSession.utm.source"]||"";
+    const {platform:_plat,placement:_plac}=extractPlatformPlacement(utmSource);
     const cents=parseFloat(String(r["event.invoice.amount.subtotalCents"]||"0").replace(",","."))||0;
     const valor=cents/100;
     const rawEmail=(r["event.invoice.payer.email"]||"").trim();
     const rawPhone=(r["event.invoice.payer.phone"]||"").replace(/\D/g,"");
+    // Canal: UTM com FBAds ou sem UTM → tráfego; qualquer outra UTM → orgânico
+    const _channel=(!utmSource.trim()||/^fbads/i.test(utmSource.trim()))?"trafego":"organico";
     return {
       "Email":rawEmail.toLowerCase(),
       "CPF Comprador":"",
@@ -599,6 +602,7 @@ function parseVendasRows(sheetJ){
       "Taxa da plataforma":"0",
       "Ad Id":adId,
       _src:"svo",
+      _channel,
       platform:_plat,
       placement:_plac,
       _orderDate:tsRaw,
@@ -804,9 +808,14 @@ async function loadData(force=false){
     S.metaByAdId=mByAdId; S.metaByCountry=mByCountry; S.metaByPlatform=mByPlatform;
 
     // ── Vendas SVO ───────────────────────────────────────────────────────
+    // Canal: UTM com FBAds (ou sem UTM) = tráfego; qualquer outra UTM = orgânico.
+    // Toda a dashboard (exceto a aba "Métricas do funil") usa só vendas de tráfego.
     const retoRows=parseVendasRows(vendasJ);
+    const trafegoRows=retoRows.filter(r=>r._channel==="trafego");
+    const organicoRows=retoRows.filter(r=>r._channel==="organico");
+
     const vD={}, vByAd={}, vByAdDate={};
-    for(const r of retoRows){
+    for(const r of trafegoRows){
       if(r["Status da compra"]!=="Paga") continue;
       const d=r["Data da compra"]; if(!d)continue;
       const valor=parseFloat(r["Valor do produto"])||0;
@@ -821,8 +830,17 @@ async function loadData(force=false){
         vByAdDate[adId][d].qtd+=1; vByAdDate[adId][d].valor+=valor;
       }
     }
+    // Vendas orgânicas — usadas só no gráfico "Vendas do orgânico" da Principal
+    const vDOrganico={};
+    for(const r of organicoRows){
+      if(r["Status da compra"]!=="Paga") continue;
+      const d=r["Data da compra"]; if(!d)continue;
+      const valor=parseFloat(r["Valor do produto"])||0;
+      if(!vDOrganico[d])vDOrganico[d]={qtd:0,valor:0,taxa:0};
+      vDOrganico[d].qtd+=1; vDOrganico[d].valor+=valor;
+    }
     const vByPlatform={}, vByPlacement={};
-    for(const r of retoRows){
+    for(const r of trafegoRows){
       if(r["Status da compra"]!=="Paga") continue;
       const d=r["Data da compra"]; if(!d||d<S.startDate||d>S.endDate) continue;
       const valor=parseFloat(r["Valor do produto"])||0;
@@ -839,8 +857,10 @@ async function loadData(force=false){
     }
     S.vendasByPlatform=vByPlatform; S.vendasByPlacement=vByPlacement;
     S.vendas=vD; S.vendasByAd=vByAd; S.vendasByAdDate=vByAdDate;
+    S.vendasOrganico=vDOrganico;
 
     // ── Funil: SVO (produto único, sem upsell/ascensão) ─────────────────────
+    // Usa TODAS as vendas (tráfego + orgânico) — única aba com essa exceção.
     S.funilRows=retoRows;
     try{ S.funil=buildFunilData(S.funilRows,S.startDate||"",S.endDate||""); }
     catch(fe){ console.error("buildFunilData error:",fe); S.funil={}; }
@@ -866,12 +886,14 @@ async function loadData(force=false){
 // ── Derived — Principal ────────────────────────────────────────────────────
 function getDaily(start,end){
   const d=D();
-  const all=new Set([...Object.keys(d.meta),...Object.keys(d.vendas)]);
+  const all=new Set([...Object.keys(d.meta),...Object.keys(d.vendas),...Object.keys(d.vendasOrganico||{})]);
   return Array.from(all).sort().filter(dt=>dt>=start&&dt<=end).map(date=>{
     const m=d.meta[date]||{spend:0,clicks:0,impressions:0,landingViews:0,checkouts:0};
     const v=d.vendas[date]||{qtd:0,valor:0,taxa:0};
+    const vo=(d.vendasOrganico||{})[date]||{qtd:0,valor:0,taxa:0};
     const lucro=v.valor-v.taxa-(m.spend*TAXA_IMPOSTO);
     return{date,label:fDate(date),spend:m.spend,faturamento:v.valor,vendas:v.qtd,
+      vendasOrganico:vo.qtd,faturamentoOrganico:vo.valor,
       roas:m.spend>0?v.valor/m.spend:0,cpv:v.qtd>0?m.spend/v.qtd:0,
       ticket:v.qtd>0?v.valor/v.qtd:0,lucro};
   });
@@ -1221,12 +1243,12 @@ function statusLegend(){
 }
 
 // Gráfico de barras — vendas por dia
-function drawBarVendas(id, data, cssW, cssH){
+function drawBarVendas(id, data, cssW, cssH, key="vendas", color="#34d399"){
   const ctx=initCanvas(id,cssW,cssH);if(!ctx)return;
   const P={t:22,r:16,b:26,l:32};
   const cW=cssW-P.l-P.r, cH=cssH-P.t-P.b;
   const n=data.length; if(n===0)return;
-  const vals=data.map(d=>d.vendas||0);
+  const vals=data.map(d=>d[key]||0);
   const maxV=Math.max(...vals,1);
 
   // Grid horizontal
@@ -1245,16 +1267,15 @@ function drawBarVendas(id, data, cssW, cssH){
   // Barras
   const slot=cW/n;
   const barW=Math.max(3,Math.min(28,slot*0.6));
-  const GREEN="#34d399";
   for(let i=0;i<n;i++){
     const v=vals[i];
     const bh=Math.max(v>0?2:0,(v/maxV)*cH);
     const cx=P.l+slot*i+slot/2;
     const x=cx-barW/2;
     const y=P.t+cH-bh;
-    // Gradiente verde
+    // Gradiente
     const g=ctx.createLinearGradient(0,y,0,P.t+cH);
-    g.addColorStop(0,GREEN+"dd");g.addColorStop(1,GREEN+"55");
+    g.addColorStop(0,color+"dd");g.addColorStop(1,color+"55");
     ctx.fillStyle=g;
     // Barra com cantos arredondados no topo
     const r=Math.min(3,barW/2,bh/2);
@@ -1392,38 +1413,34 @@ function renderPrincipal(){
       <div style="position:relative"><canvas id="c-dual"></canvas><div class="tip" id="t-dual"></div></div>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
-      <div class="cc" style="position:relative">
-        <div class="ch"><span class="ct">ROAS diário</span></div>
-        <div style="position:relative"><canvas id="c-roas"></canvas><div class="tip" id="t-roas"></div></div>
+      <div class="cc">
+        <div class="ch">
+          <span class="ct">Vendas do tráfego (dia a dia)</span>
+          <div class="lg"><span class="li"><span class="ld" style="background:#34d399"></span>Vendas/dia</span></div>
+        </div>
+        <canvas id="c-bar-vendas"></canvas>
       </div>
-      <div class="cc" style="position:relative">
-        <div class="ch"><span class="ct">Faturamento (${PRODUTO_SVO})</span></div>
-        <div style="position:relative"><canvas id="c-fat"></canvas><div class="tip" id="t-fat"></div></div>
+      <div class="cc">
+        <div class="ch">
+          <span class="ct">Vendas do orgânico (dia a dia)</span>
+          <div class="lg"><span class="li"><span class="ld" style="background:#a78bfa"></span>Vendas/dia</span></div>
+        </div>
+        <canvas id="c-bar-vendas-organico"></canvas>
       </div>
-    </div>
-    <div class="cc" style="margin-bottom:12px">
-      <div class="ch">
-        <span class="ct">Vendas (dia a dia)</span>
-        <div class="lg"><span class="li"><span class="ld" style="background:#34d399"></span>Vendas/dia</span></div>
-      </div>
-      <canvas id="c-bar-vendas"></canvas>
     </div>
     <p class="foot">Base Meta + Base Vendas</p>`;
 
   requestAnimationFrame(()=>{
     const mW=document.getElementById("c-dual")?.parentElement?.offsetWidth||720;
-    const sW=document.getElementById("c-roas")?.parentElement?.offsetWidth||340;
-    const bW=document.getElementById("c-bar-vendas")?.parentElement?.offsetWidth||720;
+    const bW=document.getElementById("c-bar-vendas")?.parentElement?.offsetWidth||360;
+    const bW2=document.getElementById("c-bar-vendas-organico")?.parentElement?.offsetWidth||360;
     drawDual("c-dual",daily,mW,230);
-    drawChartWithOverlay("c-roas", daily,"roas",  v=>v.toFixed(2)+"x",META_ROAS,"Meta "+META_ROAS.toFixed(2)+"x",false,false,sW,170);
-    drawChartWithOverlay("c-fat",  daily,"faturamento",fBRLShort,null,null,false,false,sW,170);
-    drawBarVendas("c-bar-vendas",daily,bW,160);
+    drawBarVendas("c-bar-vendas",daily,bW,160,"vendas","#34d399");
+    drawBarVendas("c-bar-vendas-organico",daily,bW2,160,"vendasOrganico","#a78bfa");
     setupTip("c-dual","t-dual",daily,[
       {key:"spend",color:CHART_INV,name:"Investimento"},
       {key:"cpv",color:CHART_CPV,name:"CPV"},
     ]);
-    setupTip("c-roas","t-roas",daily,[{key:"roas",color:CHART_COLOR,name:"ROAS",fmt:v=>v.toFixed(2)+"x"}]);
-    setupTip("c-fat","t-fat",daily,[{key:"faturamento",color:CHART_COLOR,name:"Faturamento"}]);
   });
 }
 
@@ -2063,12 +2080,10 @@ function renderAnuncios(){
       <table style="width:100%;border-collapse:collapse;font-size:11px">
         <thead><tr>
           ${thC("campName","Campanha","camp")}
-          ${thC("campStatus","Status","camp")}
           ${thC("spend","Investimento","camp")}
           ${thC("qtd","Vendas","camp")}
           ${thC("cpv","Custo/Venda","camp")}
           ${thC("roas","ROAS","camp")}
-          ${thC("ticket","Ticket Médio","camp")}
           ${thC("cpic","Custo/IC","camp")}
           ${thC("ctr","CTR","camp")}
           ${thC("cpm","CPM","camp")}
@@ -2092,12 +2107,10 @@ function renderAnuncios(){
                   <span style="font-size:11px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.campName}">${r.campName}</span>
                 </div>
               </td>
-              <td style="padding:10px 12px;text-align:center"><div style="width:9px;height:9px;border-radius:50%;background:${r.campStatus==='ACTIVE'?'#22c55e':'#ef4444'};margin:0 auto" title="${r.campStatus}"></div></td>
               <td style="padding:10px 14px;text-align:right;font-family:'JetBrains Mono',monospace;color:var(--text)">${fBRL(r.spend)}</td>
               <td style="padding:10px 14px;text-align:right;font-family:'JetBrains Mono',monospace;color:var(--text)">${r.qtd}</td>
               <td style="padding:10px 14px;text-align:right;font-family:'JetBrains Mono',monospace;color:${sc(r.cpv,META_CPV,false)}">${r.qtd>0?fBRL(r.cpv):"—"}</td>
               <td style="padding:10px 14px;text-align:right;font-family:'JetBrains Mono',monospace;color:${r.qtd>0?sc(r.roas,META_ROAS,true):"var(--hint)"}">${r.qtd>0?r.roas.toFixed(2)+"x":"—"}</td>
-              <td style="padding:10px 14px;text-align:right;font-family:'JetBrains Mono',monospace;color:var(--text)">${r.qtd>0?fBRL(r.ticket):"—"}</td>
               <td style="padding:10px 14px;text-align:right;font-family:'JetBrains Mono',monospace;color:var(--text)">${r.ic>0?fBRL(r.cpic):"—"}</td>
               <td style="padding:10px 14px;text-align:right;font-family:'JetBrains Mono',monospace;color:${sc(r.ctr,METAS_T.ctr.val,true)}">${fPct(r.ctr)}</td>
               <td style="padding:10px 14px;text-align:right;font-family:'JetBrains Mono',monospace;color:${sc(r.cpm,METAS_T.cpm.val,false)}">${fBRL(r.cpm)}</td>
@@ -2167,11 +2180,9 @@ function renderAnuncios(){
         <thead><tr>
           <th style="padding:10px 12px;border-bottom:1px solid var(--border);width:36px"></th>
           ${thC("advCode","Anúncio","ad")}
-          ${thC("adStatus","Status","ad")}
           ${thC("spend","Investimento","ad")}
           ${thC("qtd","Vendas","ad")}
           ${thC("cpv","Custo/Venda","ad")}
-          ${thC("ticket","Ticket Médio","ad")}
           ${thC("roas","ROAS","ad")}
           ${thC("cpic","Custo/IC","ad")}
           ${thC("ctr","CTR","ad")}
@@ -2182,7 +2193,7 @@ function renderAnuncios(){
           <th style="padding:10px 12px;border-bottom:1px solid var(--border)"></th>
         </tr></thead>
         <tbody>
-          ${filteredAds.length===0?`<tr><td colspan="16" style="padding:24px;text-align:center;color:var(--hint);font-size:12px">Nenhum anúncio encontrado para as campanhas selecionadas</td></tr>`:""}
+          ${filteredAds.length===0?`<tr><td colspan="13" style="padding:24px;text-align:center;color:var(--hint);font-size:12px">Nenhum anúncio encontrado para as campanhas selecionadas</td></tr>`:""}
           ${filteredAds.map(r=>{
             const selAd=S.selectedAds.has(r.advCode);
             const bgAd=selAd?"rgba(16,185,129,.10)":"transparent";
@@ -2201,11 +2212,9 @@ function renderAnuncios(){
             <td style="padding:10px 14px;text-align:left">
               <span style="background:var(--surf);border:1px solid var(--border-h);border-radius:6px;padding:2px 9px;font-size:10px;font-weight:600;color:var(--text);font-family:'JetBrains Mono',monospace" title="${r.adName}">${r.adName||r.advCode}</span>
             </td>
-            <td style="padding:10px 12px;text-align:center"><div style="width:9px;height:9px;border-radius:50%;background:${!r.hasStatusData?'var(--border-h)':r.isActive?'#22c55e':'#ef4444'};margin:0 auto" title="${!r.hasStatusData?'Sem dados':r.isActive?'Ativo':'Pausado'}"></div></td>
             <td style="padding:10px 14px;text-align:right;font-family:'JetBrains Mono',monospace;color:var(--text)">${fBRL(r.spend)}</td>
             <td style="padding:10px 14px;text-align:right;font-family:'JetBrains Mono',monospace;color:var(--text)">${r.qtd}</td>
             <td style="padding:10px 14px;text-align:right;font-family:'JetBrains Mono',monospace;color:${sc(r.cpv,META_CPV,false)};font-weight:600">${r.qtd>0?fBRL(r.cpv):"—"}</td>
-            <td style="padding:10px 14px;text-align:right;font-family:'JetBrains Mono',monospace;color:${sc(r.ticket,META_TICKET,true)};font-weight:600">${r.qtd>0?fBRL(r.ticket):"—"}</td>
             <td style="padding:10px 14px;text-align:right;font-family:'JetBrains Mono',monospace;color:${r.roas>0?sc(r.roas,META_ROAS,true):"var(--hint)"};font-weight:600">${r.roas>0?r.roas.toFixed(2)+"x":"—"}</td>
             <td style="padding:10px 14px;text-align:right;font-family:'JetBrains Mono',monospace;color:var(--text)">${r.ic>0?fBRL(r.cpic):"—"}</td>
             <td style="padding:10px 14px;text-align:right;font-family:'JetBrains Mono',monospace;color:${sc(r.ctr,METAS_T.ctr.val,true)};font-weight:600">${fPct(r.ctr)}</td>
@@ -2514,12 +2523,12 @@ function renderFunil(){
   const el=document.getElementById("page-funil");if(!el)return;
 
   const _dd=D();
+  // Métricas do funil usam TODAS as vendas (tráfego + orgânico) — única exceção do dashboard
   const fd=buildFunilData(_dd.funilRows,S.startDate||"",S.endDate||"");
-  const {counts,fat,manualCount,totalFat,totalSpend,roas,ltv,lucro,statusCounts,statusVals}=fd;
+  const {counts,totalFat,totalSpend,roas,statusCounts,statusVals}=fd;
 
   const retoCount=counts["reto"]||0;
   const roasC=statusColor(roas,META_ROAS,true);
-  const lucroC=lucro>=0?"var(--green)":"var(--red)";
 
   const qtdReemb=(statusCounts["Reembolsado"]||0)+(statusCounts["Aguardando Reembolso"]||0);
   const valReemb=(statusVals["Reembolsado"]||0)+(statusVals["Aguardando Reembolso"]||0);
@@ -2528,63 +2537,11 @@ function renderFunil(){
   const pctReemb=totalFat>0?(valReemb/totalFat)*100:0;
   const pctAbrt=totalFat>0?(valAbrt/totalFat)*100:0;
 
-  // Funil SVG — dark theme (produto único, sem upsell/ascensão)
-  const SW=520,BH=90;
-  const step={label:PRODUTO_SVO,step:"Produto único",count:retoCount,fatV:fat["reto"]||0,fill:"#1d4ed8",text:"#dbeafe"};
-  const SH=BH;
-  const svgBlocks=`
-      <rect x="0" y="0" width="${SW}" height="${BH}" rx="10" fill="${step.fill}" fill-opacity="0.85"/>
-      <text x="${SW/2}" y="18" text-anchor="middle" font-family="DM Sans,sans-serif" font-size="10" fill="${step.text}" opacity="0.65">${step.step}</text>
-      <text x="${SW/2}" y="38" text-anchor="middle" font-family="Sora,sans-serif" font-size="15" font-weight="700" fill="${step.text}">${step.label}</text>
-      <text x="${SW/2}" y="57" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="12" fill="${step.text}" opacity="0.9">${step.count} compras · ${fBRLShort(step.fatV)}</text>`;
-
-  // Analytics
-  window.setAnaTab=t=>{S.aTab=t;renderFunil();};
-  const tabs=[{k:"tempo",l:"Evolução mensal"},{k:"status",l:"Status / Perdas"}];
-  let anaContent="";
-  if(S.aTab==="tempo"){
-    const meses={};
-    for(const r of _dd.funilRows){
-      if((r["Status da compra"]||"")!=="Paga") continue;
-      const d=toISO(r["Data da compra"]||"")||""; if(!d) continue;
-      const mes=d.slice(0,7);
-      if(!meses[mes])meses[mes]={qtd:0,fat:0};
-      meses[mes].qtd+=1;
-      meses[mes].fat+=(parseFloat(r["Valor do produto"])||0);
-    }
-    const mList=Object.keys(meses).sort();
-    if(!mList.length){
-      anaContent=`<p style="color:var(--muted);font-size:13px;padding:20px 0">Sem dados no período.</p>`;
-    } else {
-      const maxQ=Math.max(...mList.map(m=>meses[m].qtd),1);
-      anaContent=`<table style="width:100%;border-collapse:collapse;font-size:12px">
-        <thead><tr style="color:var(--hint);font-size:10px;text-transform:uppercase;letter-spacing:.08em">
-          <th style="text-align:left;padding:7px 10px;font-weight:700">Mês</th>
-          <th style="text-align:center;padding:7px 10px;font-weight:700">Vendas</th>
-          <th style="text-align:right;padding:7px 10px;font-weight:700">Faturamento</th>
-        </tr></thead><tbody>
-        ${mList.map(m=>{
-          const d=meses[m];
-          const bw=Math.round((d.qtd/maxQ)*72);
-          const [y2,mo]=m.split("-");
-          return `<tr style="border-top:1px solid var(--border)">
-            <td style="padding:8px 10px;color:var(--text-strong);font-weight:600;font-family:'JetBrains Mono',monospace;font-size:11px">${mo}/${y2}</td>
-            <td style="padding:8px 10px">
-              <div style="display:flex;align-items:center;gap:7px;justify-content:center">
-                <div style="width:${bw}px;height:5px;background:#3b82f6;border-radius:3px;min-width:2px;opacity:.8"></div>
-                <span style="color:var(--text);font-family:'JetBrains Mono',monospace">${d.qtd}</span>
-              </div>
-            </td>
-            <td style="padding:8px 10px;text-align:right;font-family:'JetBrains Mono',monospace;color:var(--text)">${fBRL(d.fat)}</td>
-          </tr>`;
-        }).join("")}
-        </tbody></table>`;
-    }
-  } else {
-    const stOrder=["Paga","Aberta","Em Recuperacao","Aguardando Reembolso","Reembolsado","Expirado"];
-    const stC={"Paga":"var(--green)","Reembolsado":"var(--red)","Aguardando Reembolso":"var(--red)","Em Recuperacao":"var(--amber)","Aberta":"var(--amber)"};
-    const allSts=[...new Set(Object.keys(statusCounts))].sort((a,b)=>(stOrder.indexOf(a)+99)%100-(stOrder.indexOf(b)+99)%100);
-    anaContent=`<table style="width:100%;border-collapse:collapse;font-size:12px">
+  // Status / Perdas
+  const stOrder=["Paga","Aberta","Em Recuperacao","Aguardando Reembolso","Reembolsado","Expirado"];
+  const stC={"Paga":"var(--green)","Reembolsado":"var(--red)","Aguardando Reembolso":"var(--red)","Em Recuperacao":"var(--amber)","Aberta":"var(--amber)"};
+  const allSts=[...new Set(Object.keys(statusCounts))].sort((a,b)=>(stOrder.indexOf(a)+99)%100-(stOrder.indexOf(b)+99)%100);
+  const anaContent=`<table style="width:100%;border-collapse:collapse;font-size:12px">
       <thead><tr style="color:var(--hint);font-size:10px;text-transform:uppercase;letter-spacing:.08em">
         <th style="text-align:left;padding:7px 10px;font-weight:700">Status</th>
         <th style="text-align:center;padding:7px 10px;font-weight:700">Qtd</th>
@@ -2601,43 +2558,29 @@ function renderFunil(){
         </tr>`;
       }).join("")}
       </tbody></table>`;
-  }
 
   el.innerHTML=`
     <div class="hdr">
       <div>
         <div class="hdr-title">Métricas do Funil</div>
-        <div class="hdr-sub">base: ${retoCount} compradores · atualizado em: ${_dd.updated||"—"}</div>
+        <div class="hdr-sub">base: ${retoCount} compradores (tráfego + orgânico) · atualizado em: ${_dd.updated||"—"}</div>
       </div>
     </div>
 
-    <div class="g4" style="margin-bottom:14px">
+    <div class="g4" style="margin-bottom:20px">
       <div class="kc"><div class="kc-lbl">Investimento</div><div class="kc-val kc-val-sm">${fBRL(totalSpend)}</div><div class="kc-sub">Meta Ads</div></div>
       <div class="kc"><div class="kc-lbl">Faturamento total</div><div class="kc-val kc-val-sm">${fBRL(totalFat)}</div></div>
       <div class="kc"><div class="kc-lbl">ROAS funil</div><div class="kc-val kc-val-sm" style="color:${roasC}">${roas.toFixed(2)}x</div></div>
-      <div class="kc"><div class="kc-lbl">Lucro bruto</div><div class="kc-val kc-val-sm" style="color:${lucroC}">${fBRL(lucro)}</div></div>
-    </div>
-    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:20px">
-      <div class="kc"><div class="kc-lbl">LTV médio</div><div class="kc-val kc-val-sm">${fBRL(ltv)}</div><div class="kc-sub">por comprador</div></div>
-      <div class="kc"><div class="kc-lbl">Ticket médio</div><div class="kc-val kc-val-sm">${fBRL(retoCount>0?(fat["reto"]||0)/retoCount:0)}</div></div>
+      <div class="kc"><div class="kc-lbl">Compradores</div><div class="kc-val kc-val-sm">${retoCount}</div><div class="kc-sub">aprovados</div></div>
     </div>
 
-    <div style="display:grid;grid-template-columns:1fr 260px;gap:14px;margin-bottom:20px;align-items:start">
-      <div style="background:var(--card);border:1px solid var(--border);border-radius:14px;padding:20px">
-        <div class="section-lbl">Funil de conversão</div>
-        <svg viewBox="0 0 ${SW} ${SH}" style="width:100%;max-width:${SW}px;display:block;margin:0 auto">${svgBlocks}</svg>
-      </div>
-      <div style="display:flex;flex-direction:column;gap:10px">
-        <div class="kc"><div class="kc-lbl">Compradores</div><div class="kc-val">${retoCount}</div><div class="kc-sub">aprovados</div></div>
+    ${(qtdReemb>0||qtdAbrt>0)?`<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:20px">
         ${qtdReemb>0?`<div class="kc"><div class="kc-lbl" style="color:var(--red)">Reembolsos</div><div class="kc-val kc-val-sm" style="color:var(--red)">${qtdReemb} · ${fBRLShort(valReemb)}</div><div class="kc-sub">${pctReemb.toFixed(1)}% do fat.</div></div>`:""}
         ${qtdAbrt>0?`<div class="kc"><div class="kc-lbl" style="color:var(--amber)">Em aberto</div><div class="kc-val kc-val-sm" style="color:var(--amber)">${qtdAbrt} · ${fBRLShort(valAbrt)}</div><div class="kc-sub">${pctAbrt.toFixed(1)}% do fat.</div></div>`:""}
-      </div>
-    </div>
+      </div>`:""}
 
     <div style="background:var(--card);border:1px solid var(--border);border-radius:14px;padding:20px;margin-bottom:20px">
-      <div style="display:flex;gap:6px;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:12px">
-        ${tabs.map(t=>`<button onclick="setAnaTab('${t.k}')" style="font-size:11px;font-weight:600;padding:5px 13px;border-radius:8px;border:1px solid ${S.aTab===t.k?"rgba(96,165,250,.4)":"var(--border)"};background:${S.aTab===t.k?"rgba(59,130,246,.16)":"transparent"};color:${S.aTab===t.k?"#93c5fd":"var(--muted)"};cursor:pointer;font-family:'DM Sans',sans-serif;transition:all .15s">${t.l}</button>`).join("")}
-      </div>
+      <div class="section-lbl">Status / Perdas</div>
       ${anaContent}
     </div>
     <p style="font-size:10px;color:var(--hint);text-align:center;font-family:'JetBrains Mono',monospace">${PRODUTO_SVO} · Base Vendas + Base Meta (Meta Ads)</p>`;
