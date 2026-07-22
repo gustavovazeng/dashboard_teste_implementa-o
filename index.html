@@ -321,7 +321,7 @@ const FUNIL_IGNORAR = n => false;
 const CACHE_KEY="dash_svo_v1";
 
 // Metas aba Principal
-const META_CPV=35, META_ROAS=1.00, META_TICKET=67;
+const META_CPV=67, META_ROAS=1.00, META_TICKET=67;
 const TAXA_IMPOSTO=1.0;
 
 // Metas aba Tráfego
@@ -1412,28 +1412,26 @@ function renderPrincipal(){
       </div>
       <div style="position:relative"><canvas id="c-dual"></canvas><div class="tip" id="t-dual"></div></div>
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
-      <div class="cc">
-        <div class="ch">
-          <span class="ct">Vendas do tráfego (dia a dia)</span>
-          <div class="lg"><span class="li"><span class="ld" style="background:#34d399"></span>Vendas/dia</span></div>
-        </div>
-        <canvas id="c-bar-vendas"></canvas>
+    <div class="cc" style="margin-bottom:12px">
+      <div class="ch">
+        <span class="ct">Vendas do tráfego (dia a dia)</span>
+        <div class="lg"><span class="li"><span class="ld" style="background:#34d399"></span>Vendas/dia</span></div>
       </div>
-      <div class="cc">
-        <div class="ch">
-          <span class="ct">Vendas do orgânico (dia a dia)</span>
-          <div class="lg"><span class="li"><span class="ld" style="background:#a78bfa"></span>Vendas/dia</span></div>
-        </div>
-        <canvas id="c-bar-vendas-organico"></canvas>
+      <canvas id="c-bar-vendas"></canvas>
+    </div>
+    <div class="cc" style="margin-bottom:12px">
+      <div class="ch">
+        <span class="ct">Vendas do orgânico (dia a dia)</span>
+        <div class="lg"><span class="li"><span class="ld" style="background:#a78bfa"></span>Vendas/dia</span></div>
       </div>
+      <canvas id="c-bar-vendas-organico"></canvas>
     </div>
     <p class="foot">Base Meta + Base Vendas</p>`;
 
   requestAnimationFrame(()=>{
     const mW=document.getElementById("c-dual")?.parentElement?.offsetWidth||720;
-    const bW=document.getElementById("c-bar-vendas")?.parentElement?.offsetWidth||360;
-    const bW2=document.getElementById("c-bar-vendas-organico")?.parentElement?.offsetWidth||360;
+    const bW=document.getElementById("c-bar-vendas")?.parentElement?.offsetWidth||720;
+    const bW2=document.getElementById("c-bar-vendas-organico")?.parentElement?.offsetWidth||720;
     drawDual("c-dual",daily,mW,230);
     drawBarVendas("c-bar-vendas",daily,bW,160,"vendas","#34d399");
     drawBarVendas("c-bar-vendas-organico",daily,bW2,160,"vendasOrganico","#a78bfa");
@@ -2445,6 +2443,8 @@ function buildFunilData(rows, start, end, funil){
   // Funil: só Paga, dentro do período
   // OBs de faturamento (produto principal + OBs diretos)
   const OB_FAT_IDS = new Set(["reto"]);
+  // Vendas do produto principal, separadas por canal (tráfego x orgânico)
+  let countTrafego=0, countOrganico=0;
 
   // Passo 1: agrupa por comprador+data para calcular faturamento do produto principal
   // (evita duplicatas entre webhook e histórica)
@@ -2462,10 +2462,10 @@ function buildFunilData(rows, start, end, funil){
       const tel=(r["Telefone"]||"").replace(/[^\d]/g,"");
       const identity=em||cpf||tel; if(!identity) continue;
       const key=identity+"|"+d;
-      if(!grupos.has(key)) grupos.set(key,{st,d,valor:0,taxa:0,hasPrimary:false,obCounts:{}});
+      if(!grupos.has(key)) grupos.set(key,{st,d,valor:0,taxa:0,hasPrimary:false,obCounts:{},channel:""});
       const g=grupos.get(key);
       if((ST_PRI[st]||0)>(ST_PRI[g.st]||0)) g.st=st;
-      if(prodId===primaryId) g.hasPrimary=true;
+      if(prodId===primaryId){ g.hasPrimary=true; g.channel=r._channel||g.channel; }
       if(st==="Paga"){
         g.valor += (parseFloat(r["Valor do produto"])||0);
         g.taxa  += parseBRLAbs(r["Taxa da plataforma"]);
@@ -2478,6 +2478,8 @@ function buildFunilData(rows, start, end, funil){
       counts[primaryId]++;
       fat[primaryId] += g.valor;
       taxa[primaryId]+= g.taxa;
+      if(g.channel==="trafego") countTrafego++;
+      else if(g.channel==="organico") countOrganico++;
       // Contagem dos OBs desta transação
       for(const [obId, obQtd] of Object.entries(g.obCounts)){
         counts[obId]=(counts[obId]||0)+obQtd;
@@ -2514,6 +2516,9 @@ function buildFunilData(rows, start, end, funil){
     roas: totalSpend>0 ? totalFat/totalSpend : 0,
     ltv:  totalFat/manualCount,
     lucro: totalFat - totalTaxa - (totalSpend*TAXA_IMPOSTO),
+    countTrafego, countOrganico,
+    cpvTrafego: countTrafego>0 ? totalSpend/countTrafego : 0,
+    cpvTotal:   manualCount>0  ? totalSpend/manualCount  : 0,
     statusCounts, statusVals, statusByProd, buyers,
   };
 }
@@ -2525,10 +2530,12 @@ function renderFunil(){
   const _dd=D();
   // Métricas do funil usam TODAS as vendas (tráfego + orgânico) — única exceção do dashboard
   const fd=buildFunilData(_dd.funilRows,S.startDate||"",S.endDate||"");
-  const {counts,totalFat,totalSpend,roas,statusCounts,statusVals}=fd;
+  const {counts,totalFat,totalSpend,roas,statusCounts,statusVals,countTrafego,countOrganico,cpvTrafego,cpvTotal}=fd;
 
   const retoCount=counts["reto"]||0;
   const roasC=statusColor(roas,META_ROAS,true);
+  const cpvTrafegoC=cpvTrafego>0?statusColor(cpvTrafego,META_CPV,false):"var(--text-strong)";
+  const cpvTotalC=cpvTotal>0?statusColor(cpvTotal,META_CPV,false):"var(--text-strong)";
 
   const qtdReemb=(statusCounts["Reembolsado"]||0)+(statusCounts["Aguardando Reembolso"]||0);
   const valReemb=(statusVals["Reembolsado"]||0)+(statusVals["Aguardando Reembolso"]||0);
@@ -2567,11 +2574,18 @@ function renderFunil(){
       </div>
     </div>
 
-    <div class="g4" style="margin-bottom:20px">
+    <div class="g4" style="margin-bottom:14px">
       <div class="kc"><div class="kc-lbl">Investimento</div><div class="kc-val kc-val-sm">${fBRL(totalSpend)}</div><div class="kc-sub">Meta Ads</div></div>
       <div class="kc"><div class="kc-lbl">Faturamento total</div><div class="kc-val kc-val-sm">${fBRL(totalFat)}</div></div>
       <div class="kc"><div class="kc-lbl">ROAS funil</div><div class="kc-val kc-val-sm" style="color:${roasC}">${roas.toFixed(2)}x</div></div>
       <div class="kc"><div class="kc-lbl">Compradores</div><div class="kc-val kc-val-sm">${retoCount}</div><div class="kc-sub">aprovados</div></div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:13px;margin-bottom:20px">
+      <div class="kc"><div class="kc-lbl">Vendas tráfego</div><div class="kc-val kc-val-sm">${countTrafego}</div></div>
+      <div class="kc"><div class="kc-lbl">Vendas orgânico</div><div class="kc-val kc-val-sm">${countOrganico}</div></div>
+      <div class="kc" style="border-color:${statusBorder(cpvTrafego,META_CPV,false)}"><div class="kc-lbl">Custo por venda tráfego</div><div class="kc-val kc-val-sm" style="color:${cpvTrafegoC}">${cpvTrafego>0?fBRL(cpvTrafego):"—"}</div><div class="kc-sub">meta ${fBRL(META_CPV)}</div></div>
+      <div class="kc" style="border-color:${statusBorder(cpvTotal,META_CPV,false)}"><div class="kc-lbl">Custo por venda total</div><div class="kc-val kc-val-sm" style="color:${cpvTotalC}">${cpvTotal>0?fBRL(cpvTotal):"—"}</div><div class="kc-sub">meta ${fBRL(META_CPV)}</div></div>
     </div>
 
     ${(qtdReemb>0||qtdAbrt>0)?`<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:20px">
