@@ -254,6 +254,7 @@ const S = {
   meta:{}, vendas:{},
   metaByAd:{},
   metaByAdByDate:{},
+  metaByAdId:{},
   metaByCamp:{}, metaByCampByDate:{},
   vendasByAd:{},
   vendasByAdDate:{},
@@ -261,12 +262,12 @@ const S = {
   funil:{},
   updated:null,
   manualSpendHoje:null, // investimento de hoje editado manualmente no Resumo diário (Manual)
-  // Seletor "campanha → anúncios" do Resumo diário (Manual/Mapa — compartilhado via D())
+  // Seletor "campanha → anúncios" da aba Anúncios (Manual/Mapa — compartilhado via D())
   selectedCamps:new Set(), selectedAds:new Set(), campSearch:"", adSearch:"",
   // ── Dados Mapa ──
   mapa:{
     meta:{}, vendas:{},
-    metaByAd:{}, metaByAdByDate:{},
+    metaByAd:{}, metaByAdByDate:{}, metaByAdId:{},
     metaByCamp:{}, metaByCampByDate:{},
     vendasByAd:{}, vendasByAdDate:{},
     funilRows:[], funil:{},
@@ -694,9 +695,14 @@ async function loadData(force=false){
     // Meta — por Ad ID (para aba Anúncios)
     const mByAd={};
     const mByAdByDate={};  // {advCode: {date: {spend,clicks,impressions}}}
-    // Meta — por campanha (pro seletor "campanha → anúncios" do Resumo diário)
+    // Meta — por campanha (pro seletor "campanha → anúncios" da aba Anúncios)
     const mByCamp={};
     const mByCampByDate={};
+    // Meta — por Ad ID individual (não por advCode agregado): necessário pra escopar
+    // corretamente as métricas de um anúncio quando uma campanha específica é selecionada
+    // (um advCode pode ter Ad IDs em mais de uma campanha; sem isso o filtro de campanha
+    // mostrava o total do anúncio em TODAS as campanhas, não só na selecionada).
+    const mByAdId={};
     for(const r of parseSheet(mj)){
       const d=toISO(r["Date"]);if(!d)continue;
       if(!mD[d])mD[d]={spend:0,clicks:0,impressions:0,landingViews:0,checkouts:0,purchases:0,viewContent:0};
@@ -714,34 +720,49 @@ async function loadData(force=false){
       const sp=parseBRL(r["Spend (Cost, Amount Spent)"]);
       const cl=parseInt(r["Action Link Clicks"]||0)||0;
       const im=parseInt(r["Impressions"]||0)||0;
+      const ic=parseInt(r["Action FB Pixel Initiate Checkout (Offsite Conversion)"]||0)||0;
       if(advCode){
-        if(!mByAd[advCode])mByAd[advCode]={advCode,adIds:new Set(),spend:0,clicks:0,impressions:0,igUrl:"",dates:new Set(),camps:new Set()};
+        if(!mByAd[advCode])mByAd[advCode]={advCode,adIds:new Set(),spend:0,clicks:0,impressions:0,ic:0,igUrl:"",dates:new Set(),camps:new Set()};
         if(adId) mByAd[advCode].adIds.add(adId);
         mByAd[advCode].spend       += sp;
         mByAd[advCode].clicks      += cl;
         mByAd[advCode].impressions += im;
+        mByAd[advCode].ic          += ic;
         mByAd[advCode].dates.add(d);
         if(campName) mByAd[advCode].camps.add(campName);
         if(igUrl && !mByAd[advCode].igUrl) mByAd[advCode].igUrl=igUrl;
         if(!mByAdByDate[advCode]) mByAdByDate[advCode]={};
-        if(!mByAdByDate[advCode][d]) mByAdByDate[advCode][d]={spend:0,clicks:0,impressions:0,adIds:new Set(),igUrl:""};
+        if(!mByAdByDate[advCode][d]) mByAdByDate[advCode][d]={spend:0,clicks:0,impressions:0,ic:0,adIds:new Set(),igUrl:""};
         mByAdByDate[advCode][d].spend       += sp;
         mByAdByDate[advCode][d].clicks      += cl;
         mByAdByDate[advCode][d].impressions += im;
+        mByAdByDate[advCode][d].ic          += ic;
         if(adId) mByAdByDate[advCode][d].adIds.add(adId);
         if(igUrl && !mByAdByDate[advCode][d].igUrl) mByAdByDate[advCode][d].igUrl=igUrl;
       }
+      if(adId){
+        if(!mByAdId[adId]) mByAdId[adId]={adId,advCode,campName,igUrl,byDate:{}};
+        if(!mByAdId[adId].igUrl && igUrl) mByAdId[adId].igUrl=igUrl;
+        if(!mByAdId[adId].byDate[d]) mByAdId[adId].byDate[d]={spend:0,clicks:0,impressions:0,ic:0};
+        mByAdId[adId].byDate[d].spend       += sp;
+        mByAdId[adId].byDate[d].clicks      += cl;
+        mByAdId[adId].byDate[d].impressions += im;
+        mByAdId[adId].byDate[d].ic          += ic;
+      }
       if(campName){
-        if(!mByCamp[campName])mByCamp[campName]={campName,spend:0,clicks:0,impressions:0};
-        mByCamp[campName].spend+=sp; mByCamp[campName].clicks+=cl; mByCamp[campName].impressions+=im;
+        if(!mByCamp[campName])mByCamp[campName]={campName,spend:0,clicks:0,impressions:0,ic:0,adIds:new Set()};
+        mByCamp[campName].spend+=sp; mByCamp[campName].clicks+=cl; mByCamp[campName].impressions+=im; mByCamp[campName].ic+=ic;
+        if(adId) mByCamp[campName].adIds.add(adId);
         if(!mByCampByDate[campName])mByCampByDate[campName]={};
-        if(!mByCampByDate[campName][d])mByCampByDate[campName][d]={spend:0,clicks:0,impressions:0};
-        mByCampByDate[campName][d].spend+=sp; mByCampByDate[campName][d].clicks+=cl; mByCampByDate[campName][d].impressions+=im;
+        if(!mByCampByDate[campName][d])mByCampByDate[campName][d]={spend:0,clicks:0,impressions:0,ic:0,adIds:new Set()};
+        mByCampByDate[campName][d].spend+=sp; mByCampByDate[campName][d].clicks+=cl; mByCampByDate[campName][d].impressions+=im; mByCampByDate[campName][d].ic+=ic;
+        if(adId) mByCampByDate[campName][d].adIds.add(adId);
       }
     }
     S.meta=mD;
     S.metaByAd=mByAd;
     S.metaByAdByDate=mByAdByDate;
+    S.metaByAdId=mByAdId;
     S.metaByCamp=mByCamp;
     S.metaByCampByDate=mByCampByDate;
 
@@ -830,7 +851,7 @@ async function loadData(force=false){
 
     // ── Meta Mapa ────────────────────────────────────────────────────────────
     {
-      const mD={}, mByAd={}, mByAdByDate={}, mByCamp={}, mByCampByDate={};
+      const mD={}, mByAd={}, mByAdByDate={}, mByCamp={}, mByCampByDate={}, mByAdId={};
       for(const r of parseSheet(mmj)){
         const d=toISO(r["Date"]);if(!d)continue;
         if(!mD[d])mD[d]={spend:0,clicks:0,impressions:0,landingViews:0,checkouts:0,purchases:0,viewContent:0};
@@ -848,32 +869,47 @@ async function loadData(force=false){
         const sp=parseBRL(r["Spend (Cost, Amount Spent)"]);
         const cl=parseInt(r["Action Link Clicks"]||0)||0;
         const im=parseInt(r["Impressions"]||0)||0;
+        const ic=parseInt(r["Action FB Pixel Initiate Checkout (Offsite Conversion)"]||0)||0;
         if(advCode){
-          if(!mByAd[advCode])mByAd[advCode]={advCode,adIds:new Set(),spend:0,clicks:0,impressions:0,igUrl:"",dates:new Set(),camps:new Set()};
+          if(!mByAd[advCode])mByAd[advCode]={advCode,adIds:new Set(),spend:0,clicks:0,impressions:0,ic:0,igUrl:"",dates:new Set(),camps:new Set()};
           if(adId) mByAd[advCode].adIds.add(adId);
           mByAd[advCode].spend       += sp;
           mByAd[advCode].clicks      += cl;
           mByAd[advCode].impressions += im;
+          mByAd[advCode].ic          += ic;
           mByAd[advCode].dates.add(d);
           if(campName) mByAd[advCode].camps.add(campName);
           if(igUrl && !mByAd[advCode].igUrl) mByAd[advCode].igUrl=igUrl;
           if(!mByAdByDate[advCode]) mByAdByDate[advCode]={};
-          if(!mByAdByDate[advCode][d]) mByAdByDate[advCode][d]={spend:0,clicks:0,impressions:0,adIds:new Set(),igUrl:""};
+          if(!mByAdByDate[advCode][d]) mByAdByDate[advCode][d]={spend:0,clicks:0,impressions:0,ic:0,adIds:new Set(),igUrl:""};
           mByAdByDate[advCode][d].spend       += sp;
           mByAdByDate[advCode][d].clicks      += cl;
           mByAdByDate[advCode][d].impressions += im;
+          mByAdByDate[advCode][d].ic          += ic;
           if(adId) mByAdByDate[advCode][d].adIds.add(adId);
           if(igUrl && !mByAdByDate[advCode][d].igUrl) mByAdByDate[advCode][d].igUrl=igUrl;
         }
+        if(adId){
+          if(!mByAdId[adId]) mByAdId[adId]={adId,advCode,campName,igUrl,byDate:{}};
+          if(!mByAdId[adId].igUrl && igUrl) mByAdId[adId].igUrl=igUrl;
+          if(!mByAdId[adId].byDate[d]) mByAdId[adId].byDate[d]={spend:0,clicks:0,impressions:0,ic:0};
+          mByAdId[adId].byDate[d].spend       += sp;
+          mByAdId[adId].byDate[d].clicks      += cl;
+          mByAdId[adId].byDate[d].impressions += im;
+          mByAdId[adId].byDate[d].ic          += ic;
+        }
         if(campName){
-          if(!mByCamp[campName])mByCamp[campName]={campName,spend:0,clicks:0,impressions:0};
-          mByCamp[campName].spend+=sp; mByCamp[campName].clicks+=cl; mByCamp[campName].impressions+=im;
+          if(!mByCamp[campName])mByCamp[campName]={campName,spend:0,clicks:0,impressions:0,ic:0,adIds:new Set()};
+          mByCamp[campName].spend+=sp; mByCamp[campName].clicks+=cl; mByCamp[campName].impressions+=im; mByCamp[campName].ic+=ic;
+          if(adId) mByCamp[campName].adIds.add(adId);
           if(!mByCampByDate[campName])mByCampByDate[campName]={};
-          if(!mByCampByDate[campName][d])mByCampByDate[campName][d]={spend:0,clicks:0,impressions:0};
-          mByCampByDate[campName][d].spend+=sp; mByCampByDate[campName][d].clicks+=cl; mByCampByDate[campName][d].impressions+=im;
+          if(!mByCampByDate[campName][d])mByCampByDate[campName][d]={spend:0,clicks:0,impressions:0,ic:0,adIds:new Set()};
+          mByCampByDate[campName][d].spend+=sp; mByCampByDate[campName][d].clicks+=cl; mByCampByDate[campName][d].impressions+=im; mByCampByDate[campName][d].ic+=ic;
+          if(adId) mByCampByDate[campName][d].adIds.add(adId);
         }
       }
       S.mapa.meta=mD; S.mapa.metaByAd=mByAd; S.mapa.metaByAdByDate=mByAdByDate;
+      S.mapa.metaByAdId=mByAdId;
       S.mapa.metaByCamp=mByCamp; S.mapa.metaByCampByDate=mByCampByDate;
     }
 
@@ -1651,11 +1687,12 @@ function renderTrafego(){
 // ── Render Anúncios ────────────────────────────────────────────────────────
 function renderAnuncios(){
   const el=document.getElementById("page-anuncios");if(!el)return;
+  const _focusedIdMM=document.activeElement?.id;
 
   // Constrói tabela de anúncios no período selecionado
   // Para cada advCode, soma invest da base Meta e vendas da base Vendas
   // cruzando pelo Ad ID
-  function buildAdRows(start,end){
+  function buildAdRows(start,end,allowedAdIds){
     const dd=D();
     const currentFunil=S.currentFunil;
     const principalId=currentFunil==="mapa"?"mapa":"manual";
@@ -1715,20 +1752,46 @@ function renderAnuncios(){
 
     const rows=[];
     for(const [advCode,meta] of Object.entries(dd.metaByAd)){
-      const byDate=dd.metaByAdByDate[advCode]||{};
-      let spend=0,clicks=0,impressions=0;
-      let igUrl="";
+      // Escopa aos Ad IDs (individuais, do Meta) permitidos pela campanha selecionada, quando
+      // houver filtro. Sem isso, um advCode que rodou em mais de uma campanha mostraria o total
+      // do anúncio em TODAS as campanhas, não só na selecionada — daí a divergência entre o
+      // investimento da campanha e a soma dos anúncios filtrados.
+      let candidateIds = allowedAdIds
+        ? new Set([...meta.adIds].filter(id=>allowedAdIds.has(id)))
+        : meta.adIds;
+      if(allowedAdIds && candidateIds.size===0) continue;
+
+      let spend=0,clicks=0,impressions=0,ic=0,igUrl="";
       const adIdsInPeriod=new Set();
-      for(const [d,vals] of Object.entries(byDate)){
-        if(d>=start && d<=end){
-          spend+=vals.spend; clicks+=vals.clicks; impressions+=vals.impressions;
-          vals.adIds.forEach(id=>adIdsInPeriod.add(id));
-          if(!igUrl && vals.igUrl) igUrl=vals.igUrl;
+      if(candidateIds.size>0){
+        // Soma por Ad ID individual (mByAdId), restrito ao período — garante que, com filtro de
+        // campanha ativo, só entra o gasto/clicks/impressões daquele Ad ID (não do advCode inteiro).
+        for(const id of candidateIds){
+          const adIdData=dd.metaByAdId[id]; if(!adIdData) continue;
+          let hasPeriodData=false;
+          for(const [d,vals] of Object.entries(adIdData.byDate)){
+            if(d>=start && d<=end){
+              spend+=vals.spend; clicks+=vals.clicks; impressions+=vals.impressions; ic+=vals.ic||0;
+              hasPeriodData=true;
+            }
+          }
+          if(hasPeriodData) adIdsInPeriod.add(id);
+          if(!igUrl && adIdData.igUrl) igUrl=adIdData.igUrl;
+        }
+      } else if(!allowedAdIds){
+        // Fallback: advCode sem Ad IDs capturados (linha sem "Ad ID" na planilha) — usa o
+        // agregado por advCode como antes, já que não há como escopar por campanha mesmo assim.
+        const byDate=dd.metaByAdByDate[advCode]||{};
+        for(const [d,vals] of Object.entries(byDate)){
+          if(d>=start && d<=end){
+            spend+=vals.spend; clicks+=vals.clicks; impressions+=vals.impressions; ic+=vals.ic||0;
+            if(!igUrl && vals.igUrl) igUrl=vals.igUrl;
+          }
         }
       }
       if(spend===0) continue;
       let qtd=0,valor=0,taxa=0;
-      const useIds=adIdsInPeriod.size>0?adIdsInPeriod:meta.adIds;
+      const useIds=adIdsInPeriod.size>0?adIdsInPeriod:candidateIds;
       for(const adId of useIds){
         const byD=dd.vendasByAdDate[adId]||{};
         for(const [vd,vvals] of Object.entries(byD)){
@@ -1751,12 +1814,122 @@ function renderAnuncios(){
       const cpv=qtd>0?spend/qtd:0;
       const ticket=qtd>0?valor/qtd:0;
       const ticketAsc=qtd>0?totalAscensoes/qtd:0;
-      rows.push({advCode,spend,clicks,impressions,qtd,valor,cpc,ctr,cpm,cpv,ticket,ticketAsc,igUrl});
+      const roas=spend>0&&totalAscensoes>0?totalAscensoes/spend:0;
+      const cpic=ic>0?spend/ic:0;
+      rows.push({advCode,spend,clicks,impressions,qtd,valor,cpc,ctr,cpm,cpv,ticket,ticketAsc,roas,ic,cpic,igUrl});
     }
     return rows.filter(r=>r.spend>0);
   }
 
-  const rows=buildAdRows(S.aStartDate,S.aEndDate);
+  // ── Seletor "campanha → anúncios" ────────────────────────────────────────
+  // Clicar numa campanha filtra a tabela de anúncios abaixo pra só os dela (escopando as
+  // métricas de cada anúncio aos Ad IDs daquela campanha — não ao total do anúncio em todas
+  // as campanhas em que ele já apareceu); clicar em anúncios seleciona; com ≥1 anúncio
+  // selecionado, gera automaticamente um texto de resumo já com as metas do funil
+  // (META_CPV/METAS_T) e emoji de grading.
+  const dd0=D();
+  const aStart=S.aStartDate, aEnd=S.aEndDate;
+
+  // Passo 0: buyers/receita por evento (mesma lógica do buildAdRows, mas hoisted pra fora
+  // porque a tabela de campanhas também precisa de ROAS/Ticket Médio Ascensões)
+  const _identMap0=new Map();
+  function _getIdKeys0(r){
+    const ks=[];
+    const em=(r["Email"]||"").toLowerCase().trim();
+    const cpf=(r["CPF Comprador"]||"").replace(/[^\d]/g,"");
+    const tel=(r["Telefone"]||"").replace(/[^\d]/g,"");
+    if(em) ks.push("e:"+em); if(cpf) ks.push("c:"+cpf); if(tel) ks.push("t:"+tel);
+    return ks;
+  }
+  for(const r of dd0.funilRows){
+    const ks=_getIdKeys0(r); if(!ks.length) continue;
+    let canonical=null;
+    for(const k of ks){ if(_identMap0.has(k)){canonical=_identMap0.get(k);break;} }
+    if(!canonical) canonical=ks[0];
+    for(const k of ks) _identMap0.set(k,canonical);
+  }
+  function _getCanonical0(r){
+    const ks=_getIdKeys0(r);
+    for(const k of ks){ if(_identMap0.has(k)) return _identMap0.get(k); }
+    return ks[0]||null;
+  }
+  const _principalId0=S.currentFunil==="mapa"?"mapa":"manual";
+  const _adBuyersMap0=new Map();
+  for(const r of dd0.funilRows){
+    const dt=toISO(r["Data da compra"]||"")||"";
+    if(dt<aStart||dt>aEnd) continue;
+    if((r["Status da compra"]||"").trim()!=="Paga") continue;
+    if(classifyProduct(r["Nome do produto"]||"",S.currentFunil)!==_principalId0) continue;
+    const adId=extractAdId(r["Ad Id"]||""); if(!adId) continue;
+    const key=_getCanonical0(r); if(!key) continue;
+    const eventKey=key+"|"+dt;
+    if(!_adBuyersMap0.has(adId)) _adBuyersMap0.set(adId,new Set());
+    _adBuyersMap0.get(adId).add(eventKey);
+  }
+  const _eventTotalSpent0=new Map();
+  for(const r of dd0.funilRows){
+    const dt=toISO(r["Data da compra"]||"")||"";
+    if(dt<aStart||dt>aEnd) continue;
+    if((r["Status da compra"]||"").trim()!=="Paga") continue;
+    const key=_getCanonical0(r); if(!key) continue;
+    const eventKey=key+"|"+dt;
+    _eventTotalSpent0.set(eventKey,(_eventTotalSpent0.get(eventKey)||0)+parseBRL(r["Valor do produto"]||"0"));
+  }
+
+  const campRows=[];
+  for(const [campName,meta] of Object.entries(dd0.metaByCamp||{})){
+    const byDate=dd0.metaByCampByDate[campName]||{};
+    let cSpend=0,cClicks=0,cImpr=0,cIc=0;
+    const adIdsPeriod=new Set();
+    for(const [dt,vals] of Object.entries(byDate)){
+      if(dt>=aStart&&dt<=aEnd){
+        cSpend+=vals.spend;cClicks+=vals.clicks;cImpr+=vals.impressions;cIc+=vals.ic||0;
+        (vals.adIds||new Set()).forEach(id=>adIdsPeriod.add(id));
+      }
+    }
+    if(cSpend===0)continue;
+    const useCampIds=adIdsPeriod.size>0?adIdsPeriod:(meta.adIds||new Set());
+    let cQtd=0,cValor=0;
+    for(const adId of useCampIds){
+      const byD=dd0.vendasByAdDate[adId]||{};
+      for(const [vd,vv] of Object.entries(byD)){
+        if(vd>=aStart&&vd<=aEnd){cQtd+=vv.qtd;cValor+=vv.valor;}
+      }
+    }
+    let cAscensoes=0;
+    for(const adId of useCampIds){
+      for(const eventKey of (_adBuyersMap0.get(adId)||new Set())){
+        cAscensoes+=(_eventTotalSpent0.get(eventKey)||0);
+      }
+    }
+    campRows.push({campName,spend:cSpend,clicks:cClicks,impressions:cImpr,ic:cIc,
+      qtd:cQtd,valor:cValor,
+      ctr:cImpr>0?(cClicks/cImpr)*100:0, cpm:cImpr>0?(cSpend/cImpr)*1000:0,
+      cpc:cClicks>0?cSpend/cClicks:0,
+      cpv:cQtd>0?cSpend/cQtd:0, ticket:cQtd>0?cValor/cQtd:0,
+      roas:cSpend>0&&cAscensoes>0?cAscensoes/cSpend:0,
+      cpic:cIc>0?cSpend/cIc:0});
+  }
+  campRows.sort((a,b)=>b.spend-a.spend);
+  const _campQ=(dd0.campSearch||"").trim().toLowerCase();
+  const filteredCamps=_campQ?campRows.filter(c=>c.campName.toLowerCase().includes(_campQ)):campRows;
+  const hasCampSel=dd0.selectedCamps.size>0;
+
+  // União dos Ad IDs das campanhas selecionadas — é isso que escopa buildAdRows()
+  let allowedAdIds=null;
+  if(hasCampSel){
+    allowedAdIds=new Set();
+    for(const c of campRows){
+      if(dd0.selectedCamps.has(c.campName)){
+        const m=dd0.metaByCamp[c.campName];
+        (m?.adIds||new Set()).forEach(id=>allowedAdIds.add(id));
+      }
+    }
+  }
+
+  const rows=buildAdRows(S.aStartDate,S.aEndDate,allowedAdIds);
+  const _adQ=(dd0.adSearch||"").trim().toLowerCase();
+  const rowsFiltered=_adQ?rows.filter(r=>r.advCode.toLowerCase().includes(_adQ)):rows;
 
   // Totais do período (usa dados diários já calculados)
   const dailyA=[];
@@ -1804,11 +1977,44 @@ function renderAnuncios(){
 
   // Ordenação
   const {col,dir}=S.aSort;
-  const sorted=[...rows].sort((a,b)=>{
+  const sorted=[...rowsFiltered].sort((a,b)=>{
     const av=a[col]??0, bv=b[col]??0;
     if(typeof av==="string") return dir==="asc"?av.localeCompare(bv):bv.localeCompare(av);
     return dir==="asc"?av-bv:bv-av;
   });
+
+  // Resumo de anúncios selecionados (com metas do funil)
+  const isMapaOffer=S.currentFunil==="mapa";
+  const vendasLblA=isMapaOffer?"Vendas":"Vendas Ebook";
+  function fDMa(iso){if(!iso)return"—";const[,m,d]=iso.split("-");return`${d}/${m}`;}
+  const dateLabelA=aStart===aEnd?fDMa(aStart):`${fDMa(aStart)} a ${fDMa(aEnd)}`;
+  const selAdRows=sorted.filter(r=>dd0.selectedAds.has(r.advCode));
+  let adResumoTextMM="";
+  if(selAdRows.length){
+    const lines=[`*Melhores ads*`,"",`_${dateLabelA}_`,""];
+    for(const r of selAdRows){
+      const cpvE=em(r.cpv,META_CPV,false), cpcE=em(r.cpc,METAS_T.cpc.val,false),
+            ctrE=em(r.ctr,METAS_T.ctr.val,true), cpmE=em(r.cpm,METAS_T.cpm.val,false);
+      lines.push(`Nome do ad ⤵️`);
+      lines.push(r.advCode);
+      if(r.igUrl) lines.push(r.igUrl);
+      lines.push(`Investimento:\t${fBRL(r.spend)}`);
+      lines.push(`${vendasLblA}:\t${r.qtd}`);
+      lines.push(`Custo por venda:\t${r.qtd>0?fBRL(r.cpv):"—"}\t${cpvE} Meta: ${fBRL(META_CPV)}`);
+      lines.push(``);
+      lines.push(`CPC:\t${fBRL(r.cpc)}\t${cpcE} Meta: ${fBRL(METAS_T.cpc.val)}`);
+      lines.push(`CTR:\t${fPct(r.ctr)}\t${ctrE} Meta: ${METAS_T.ctr.val}%`);
+      lines.push(`CPM:\t${fBRL(r.cpm)}\t${cpmE} Meta: ${fBRL(METAS_T.cpm.val)}`);
+      lines.push(``);
+    }
+    adResumoTextMM=lines.join("\n");
+  }
+
+  function chkBoxMM(checked){
+    return `<div style="width:16px;height:16px;border-radius:4px;border:2px solid ${checked?"#10b981":"rgba(255,255,255,.2)"};background:${checked?"#10b981":"transparent"};display:flex;align-items:center;justify-content:center;margin:auto">
+      ${checked?`<svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4L4 7L9 1" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`:""}
+    </div>`;
+  }
 
   function thSort(c,lbl){
     const active=col===c;
@@ -1828,7 +2034,7 @@ function renderAnuncios(){
     <div class="hdr" style="margin-bottom:6px">
       <div>
         <div class="hdr-title">Anúncios</div>
-        <div class="hdr-sub">atualizado em: ${D().updated||"—"} · ${sorted.length} anúncios</div>
+        <div class="hdr-sub">atualizado em: ${D().updated||"—"} · ${filteredCamps.length} campanhas · ${sorted.length} anúncios${dd0.selectedAds.size>0?" · "+dd0.selectedAds.size+" anúncio"+(dd0.selectedAds.size>1?"s":"")+" selecionado"+(dd0.selectedAds.size>1?"s":""):""}</div>
       </div>
       <div>${statusLegend()}</div>
     </div>
@@ -1845,17 +2051,76 @@ function renderAnuncios(){
       <div class="kc" style="border-color:${statusBorder(totCpm,METAS_T.cpm.val,false)}"><div class="kc-lbl">CPM</div><div class="kc-val" style="color:${sc(totCpm,METAS_T.cpm.val,false)};font-size:18px">${fBRL(totCpm)}</div><div class="kc-sub">meta ${fBRL(METAS_T.cpm.val)}</div></div>
     </div>
 
-    <div class="section-lbl">Anúncios com investimento no período</div>
+    <!-- Campanhas -->
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+      <div class="section-lbl" style="margin-bottom:0">Campanhas</div>
+      ${hasCampSel?`<button onclick="clearCampsMM()" style="font-size:10px;padding:3px 9px;border:1px solid rgba(239,68,68,.4);background:rgba(239,68,68,.08);color:#f87171;border-radius:5px;cursor:pointer;font-family:'DM Sans',sans-serif">✕ Limpar seleção (${dd0.selectedCamps.size})</button>`:""}
+      <span style="font-size:10px;color:var(--hint)">Clique para filtrar anúncios por campanha</span>
+    </div>
+    <div style="position:relative;margin-bottom:10px">
+      <span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--hint);font-size:12px;pointer-events:none">🔍</span>
+      <input id="camp-search-mm" oninput="setCampSearchMM(this.value)" value="${(dd0.campSearch||"").replace(/"/g,"&quot;")}" placeholder="Buscar campanha…" style="width:100%;padding:8px 12px 8px 34px;background:var(--card);border:1px solid var(--border);border-radius:9px;color:var(--text);font-size:12px;font-family:'DM Sans',sans-serif;outline:none;box-sizing:border-box"/>
+    </div>
+    <div style="background:var(--card);border:1px solid var(--border);border-radius:14px;overflow:hidden;margin-bottom:20px;max-height:320px;overflow-y:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:11px">
+        <thead><tr style="position:sticky;top:0;background:var(--card)">
+          <th style="width:32px;padding:8px;border-bottom:1px solid var(--border)"></th>
+          <th style="padding:8px 12px;text-align:left;font-size:9px;color:var(--hint);text-transform:uppercase;border-bottom:1px solid var(--border)">Campanha</th>
+          <th style="padding:8px 12px;text-align:right;font-size:9px;color:var(--hint);text-transform:uppercase;border-bottom:1px solid var(--border)">Investimento</th>
+          <th style="padding:8px 12px;text-align:right;font-size:9px;color:var(--hint);text-transform:uppercase;border-bottom:1px solid var(--border)">Vendas</th>
+          <th style="padding:8px 12px;text-align:right;font-size:9px;color:var(--hint);text-transform:uppercase;border-bottom:1px solid var(--border)">Custo/Venda</th>
+          <th style="padding:8px 12px;text-align:right;font-size:9px;color:var(--hint);text-transform:uppercase;border-bottom:1px solid var(--border)">ROAS</th>
+          <th style="padding:8px 12px;text-align:right;font-size:9px;color:var(--hint);text-transform:uppercase;border-bottom:1px solid var(--border)">Ticket Médio</th>
+          <th style="padding:8px 12px;text-align:right;font-size:9px;color:var(--hint);text-transform:uppercase;border-bottom:1px solid var(--border)">Custo/IC</th>
+          <th style="padding:8px 12px;text-align:right;font-size:9px;color:var(--hint);text-transform:uppercase;border-bottom:1px solid var(--border)">CTR</th>
+          <th style="padding:8px 12px;text-align:right;font-size:9px;color:var(--hint);text-transform:uppercase;border-bottom:1px solid var(--border)">CPM</th>
+          <th style="padding:8px 12px;text-align:right;font-size:9px;color:var(--hint);text-transform:uppercase;border-bottom:1px solid var(--border)">CPC</th>
+        </tr></thead>
+        <tbody>
+          ${filteredCamps.length===0?`<tr><td colspan="11" style="padding:16px;text-align:center;color:var(--hint);font-size:11px">Nenhuma campanha no período</td></tr>`:""}
+          ${filteredCamps.map(c=>{
+            const sel=dd0.selectedCamps.has(c.campName);
+            const safe=c.campName.replace(/\\/g,"\\\\").replace(/'/g,"\\'");
+            return `<tr onclick="toggleCampMM('${safe}')" style="cursor:pointer;border-top:1px solid var(--border);background:${sel?"rgba(16,185,129,.1)":"transparent"}">
+              <td style="padding:7px 8px;text-align:center">${chkBoxMM(sel)}</td>
+              <td style="padding:7px 12px;font-size:11px;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:${sel?"#10b981":"var(--text)"};font-weight:${sel?600:400}" title="${c.campName}">${c.campName}</td>
+              <td style="padding:7px 12px;text-align:right;font-family:'JetBrains Mono',monospace">${fBRL(c.spend)}</td>
+              <td style="padding:7px 12px;text-align:right;font-family:'JetBrains Mono',monospace">${c.qtd}</td>
+              <td style="padding:7px 12px;text-align:right;font-family:'JetBrains Mono',monospace;color:${sc(c.cpv,META_CPV,false)}">${c.qtd>0?fBRL(c.cpv):"—"}</td>
+              <td style="padding:7px 12px;text-align:right;font-family:'JetBrains Mono',monospace">${c.roas>0?c.roas.toFixed(2)+"x":"—"}</td>
+              <td style="padding:7px 12px;text-align:right;font-family:'JetBrains Mono',monospace">${c.qtd>0?fBRL(c.ticket):"—"}</td>
+              <td style="padding:7px 12px;text-align:right;font-family:'JetBrains Mono',monospace">${c.ic>0?fBRL(c.cpic):"—"}</td>
+              <td style="padding:7px 12px;text-align:right;font-family:'JetBrains Mono',monospace">${fPct(c.ctr)}</td>
+              <td style="padding:7px 12px;text-align:right;font-family:'JetBrains Mono',monospace">${fBRL(c.cpm)}</td>
+              <td style="padding:7px 12px;text-align:right;font-family:'JetBrains Mono',monospace">${fBRL(c.cpc)}</td>
+            </tr>`;
+          }).join("")}
+        </tbody>
+      </table>
+    </div>
+
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+      <div class="section-lbl" style="margin-bottom:0">Anúncios com investimento no período</div>
+      ${dd0.selectedAds.size>0?`<button onclick="clearAdsMM()" style="font-size:10px;padding:3px 9px;border:1px solid rgba(239,68,68,.4);background:rgba(239,68,68,.08);color:#f87171;border-radius:5px;cursor:pointer;font-family:'DM Sans',sans-serif">✕ Limpar seleção (${dd0.selectedAds.size})</button>`:""}
+      <span style="font-size:10px;color:var(--hint)">Clique para selecionar e gerar resumo</span>
+    </div>
+    <div style="position:relative;margin-bottom:10px">
+      <span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--hint);font-size:12px;pointer-events:none">🔍</span>
+      <input id="ad-search-mm" oninput="setAdSearchMM(this.value)" value="${(dd0.adSearch||"").replace(/"/g,"&quot;")}" placeholder="Buscar anúncio…" style="width:100%;padding:8px 12px 8px 34px;background:var(--card);border:1px solid var(--border);border-radius:9px;color:var(--text);font-size:12px;font-family:'DM Sans',sans-serif;outline:none;box-sizing:border-box"/>
+    </div>
     <div style="background:var(--card);border:1px solid var(--border);border-radius:14px;overflow:hidden;margin-bottom:20px">
       <table style="width:100%;border-collapse:collapse;font-size:11px">
         <thead>
           <tr>
+            <th style="width:32px;padding:10px 8px;border-bottom:1px solid var(--border)"></th>
             <th style="padding:10px 14px;text-align:left;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--hint);border-bottom:1px solid var(--border)">Anúncio</th>
             ${thRow("spend","Investimento")}
             ${thRow("qtd","Vendas")}
             ${thRow("cpv","Custo/Venda")}
             ${thRow("ticket","Ticket Médio Front")}
             ${thRow("ticketAsc","Ticket Médio Ascensões")}
+            ${thRow("roas","ROAS")}
+            ${thRow("cpic","Custo/IC")}
             ${thRow("ctr","CTR")}
             ${thRow("cpm","CPM")}
             ${thRow("cpc","CPC")}
@@ -1863,27 +2128,55 @@ function renderAnuncios(){
           </tr>
         </thead>
         <tbody>
-          ${sorted.map((r,i)=>`
-          <tr style="border-bottom:1px solid var(--border);transition:background .1s" onmouseover="this.style.background='rgba(255,255,255,.025)'" onmouseout="this.style.background='transparent'">
+          ${sorted.length===0?`<tr><td colspan="13" style="padding:16px;text-align:center;color:var(--hint);font-size:11px">${hasCampSel?"Nenhum anúncio nas campanhas selecionadas":"Nenhum anúncio no período"}</td></tr>`:""}
+          ${sorted.map((r,i)=>{
+            const selA=dd0.selectedAds.has(r.advCode);
+            return `
+          <tr onclick="toggleAdMM('${r.advCode.replace(/\\/g,"\\\\").replace(/'/g,"\\'")}')" style="cursor:pointer;border-bottom:1px solid var(--border);transition:background .1s;background:${selA?"rgba(16,185,129,.1)":"transparent"}" onmouseover="if(!this.dataset.sel)this.style.background='rgba(255,255,255,.025)'" onmouseout="this.style.background='${selA?"rgba(16,185,129,.1)":"transparent"}'" data-sel="${selA?"1":""}">
+            <td style="padding:10px 8px;text-align:center">${chkBoxMM(selA)}</td>
             <td style="padding:10px 14px;text-align:left">
-              <span style="background:var(--surf);border:1px solid var(--border-h);border-radius:6px;padding:2px 9px;font-size:10px;font-weight:600;color:var(--text);font-family:'JetBrains Mono',monospace">${r.advCode}</span>
+              <span style="background:var(--surf);border:1px solid var(--border-h);border-radius:6px;padding:2px 9px;font-size:10px;font-weight:600;color:${selA?"#10b981":"var(--text)"};font-family:'JetBrains Mono',monospace">${r.advCode}</span>
             </td>
             <td style="padding:10px 14px;text-align:right;font-family:'JetBrains Mono',monospace;color:var(--text)">${fBRL(r.spend)}</td>
             <td style="padding:10px 14px;text-align:right;font-family:'JetBrains Mono',monospace;color:var(--text)">${r.qtd}</td>
             <td style="padding:10px 14px;text-align:right;font-family:'JetBrains Mono',monospace;color:${sc(r.cpv,META_CPV,false)};font-weight:600">${r.qtd>0?fBRL(r.cpv):"—"}</td>
             <td style="padding:10px 14px;text-align:right;font-family:'JetBrains Mono',monospace;color:${sc(r.ticket,META_TICKET,true)};font-weight:600">${r.qtd>0?fBRL(r.ticket):"—"}</td>
             <td style="padding:10px 14px;text-align:right;font-family:'JetBrains Mono',monospace;color:var(--text)">${r.qtd>0?fBRL(r.ticketAsc):"—"}</td>
+            <td style="padding:10px 14px;text-align:right;font-family:'JetBrains Mono',monospace;color:var(--text)">${r.roas>0?r.roas.toFixed(2)+"x":"—"}</td>
+            <td style="padding:10px 14px;text-align:right;font-family:'JetBrains Mono',monospace;color:var(--text)">${r.ic>0?fBRL(r.cpic):"—"}</td>
             <td style="padding:10px 14px;text-align:right;font-family:'JetBrains Mono',monospace;color:${sc(r.ctr,METAS_T.ctr.val,true)};font-weight:600">${fPct(r.ctr)}</td>
             <td style="padding:10px 14px;text-align:right;font-family:'JetBrains Mono',monospace;color:${sc(r.cpm,METAS_T.cpm.val,false)};font-weight:600">${fBRL(r.cpm)}</td>
             <td style="padding:10px 14px;text-align:right;font-family:'JetBrains Mono',monospace;color:${sc(r.cpc,METAS_T.cpc.val,false)};font-weight:600">${fBRL(r.cpc)}</td>
-            <td style="padding:8px 12px;text-align:center">
+            <td style="padding:8px 12px;text-align:center" onclick="event.stopPropagation()">
               ${r.igUrl?`<a href="${r.igUrl}" target="_blank" style="display:inline-flex;align-items:center;gap:3px;background:var(--surf);border:1px solid var(--border-h);color:var(--muted);padding:4px 9px;border-radius:7px;font-size:10px;text-decoration:none;white-space:nowrap;font-weight:500">Ver ↗</a>`:"—"}
             </td>
-          </tr>`).join("")}
+          </tr>`;
+          }).join("")}
         </tbody>
       </table>
     </div>
+
+    ${selAdRows.length>0?`
+    <div style="margin-top:8px;margin-bottom:20px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <div>
+          <div class="section-lbl" style="margin-bottom:2px">Resumo de Anúncios</div>
+          <div style="font-size:10px;color:var(--hint)">${selAdRows.length} ad(s) · ${dateLabelA}</div>
+        </div>
+        <button onclick="copyResumoAdsMM()" style="padding:6px 16px;background:rgba(59,130,246,.15);border:1px solid rgba(96,165,250,.35);color:#93c5fd;border-radius:8px;cursor:pointer;font-size:11px;font-weight:600;font-family:'DM Sans',sans-serif">📋 Copiar resumo</button>
+      </div>
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px">
+        <pre id="resumo-ads-preview-mm" style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text);white-space:pre-wrap;line-height:1.9;margin:0;user-select:all">${adResumoTextMM.replace(/&/g,"&amp;").replace(/</g,"&lt;")}</pre>
+      </div>
+    </div>`:""}
     <p class="foot">Base Meta (Stract) + Base Vendas (Eduzz) · Google Sheets API v4</p>`;
+  el._adResumoTextMM=adResumoTextMM;
+  if(_focusedIdMM==="camp-search-mm"||_focusedIdMM==="ad-search-mm"){
+    requestAnimationFrame(()=>{
+      const _inp=document.getElementById(_focusedIdMM);
+      if(_inp){_inp.focus();const _l=_inp.value.length;_inp.setSelectionRange(_l,_l);}
+    });
+  }
 }
 
 
@@ -3550,28 +3843,25 @@ function sortAnuncios(col){
   renderAnunciosSessao();
 }
 
-// Nota: usam render() (não renderAnunciosSessao() direto) pra funcionar tanto na aba
-// Anúncios quanto no seletor "campanha → anúncios" dentro do Resumo diário — render()
-// já despacha pra função certa conforme S.currentPage.
 function toggleCamp(name){
   if(S.sessao.selectedCamps.has(name))S.sessao.selectedCamps.delete(name);
   else S.sessao.selectedCamps.add(name);
-  render();
+  renderAnunciosSessao();
 }
 
-function clearCamps(){S.sessao.selectedCamps.clear();render();}
+function clearCamps(){S.sessao.selectedCamps.clear();renderAnunciosSessao();}
 
-function setCampSearch(v){S.sessao.campSearch=v;render();}
+function setCampSearch(v){S.sessao.campSearch=v;renderAnunciosSessao();}
 
-function setAdSearch(v){S.sessao.adSearch=v;render();}
+function setAdSearch(v){S.sessao.adSearch=v;renderAnunciosSessao();}
 
 function toggleAd(code){
   if(S.sessao.selectedAds.has(code))S.sessao.selectedAds.delete(code);
   else S.sessao.selectedAds.add(code);
-  render();
+  renderAnunciosSessao();
 }
 
-function clearAds(){S.sessao.selectedAds.clear();render();}
+function clearAds(){S.sessao.selectedAds.clear();renderAnunciosSessao();}
 
 function copyAdResumo(){
   const el=document.getElementById("page-anuncios");
@@ -4109,16 +4399,18 @@ function renderAnunciosSessao(){
   if(hasSelAds){
     const lines=["*Melhores ads - Sessão Estratégica*","",`_${dateLabel}_`,""];
     for(const a of selAds){
+      const cpfE=em(a.cpf,META_CPF,false), cpcE=em(a.cpc,METAS_T_S.cpc.val,false),
+            ctrE=em(a.ctr,METAS_T_S.ctr.val,true), cpmE=em(a.cpm,METAS_T_S.cpm.val,false);
       lines.push(`Nome do ad ⤵️`);
       lines.push(a.adName);
       if(a.igUrl)lines.push(a.igUrl);
       lines.push(`Investimento:\t${fBRL(a.spend)}`);
       lines.push(`Formulários:\t${a.leads}`);
-      lines.push(`Custo por Formulário:\t${a.leads>0?fBRL(a.cpf):"—"}`);
+      lines.push(`Custo por Formulário:\t${a.leads>0?fBRL(a.cpf):"—"}\t${cpfE} Meta: R$ ${fN(META_CPF)}`);
       lines.push(``);
-      lines.push(`CPC:\t${fBRL(a.cpc)}`);
-      lines.push(`CPM:\t${fBRL(a.cpm)}`);
-      lines.push(`CTR:\t${fPct(a.ctr)}`);
+      lines.push(`CPC:\t${fBRL(a.cpc)}\t${cpcE} Meta: R$ ${fN(METAS_T_S.cpc.val)}`);
+      lines.push(`CTR:\t${fPct(a.ctr)}\t${ctrE} Meta: ${METAS_T_S.ctr.val}%`);
+      lines.push(`CPM:\t${fBRL(a.cpm)}\t${cpmE} Meta: R$ ${fN(METAS_T_S.cpm.val)}`);
       lines.push(``);
     }
     adResumoText=lines.join("\n");
@@ -4333,162 +4625,6 @@ _${dateLabel}_\t\t
 
 ⬇️ ${blockText("Hoje",hoje)}`;
 
-  // ── Seletor "campanha → anúncios" (Resumo diário) ─────────────────────────
-  // Mesma mecânica já usada na aba Anúncios (S.sessao.selectedCamps/selectedAds,
-  // S.sessao.metaByCamp/metaByAd), só que aqui o texto de resumo por anúncio já sai com
-  // as metas do funil (METAS_T_S/META_CPF) e emoji de grading — a versão da aba Anúncios
-  // não tinha isso.
-  const rCampRows=[];
-  for(const [campName,byDate] of Object.entries(S.sessao.metaByCampByDate||{})){
-    let cSpend=0,cClicks=0,cImpr=0;
-    for(const [dt,vals] of Object.entries(byDate)){
-      if(dt>=start&&dt<=end){cSpend+=vals.spend;cClicks+=vals.clicks;cImpr+=vals.impressions;}
-    }
-    if(cSpend===0)continue;
-    rCampRows.push({campName,spend:cSpend,clicks:cClicks,impressions:cImpr,
-      ctr:cImpr>0?(cClicks/cImpr)*100:0, cpm:cImpr>0?(cSpend/cImpr)*1000:0});
-  }
-  rCampRows.sort((a,b)=>b.spend-a.spend);
-  const _rcq=(S.sessao.campSearch||"").trim().toLowerCase();
-  const rFilteredCamps=_rcq?rCampRows.filter(c=>c.campName.toLowerCase().includes(_rcq)):rCampRows;
-
-  const rHasCampSel=S.sessao.selectedCamps.size>0;
-  const rAdRows=[];
-  for(const [adName,metaAd] of Object.entries(S.sessao.metaByAd||{})){
-    if(rHasCampSel){
-      const adCamps=metaAd.camps||new Set();
-      if(![...S.sessao.selectedCamps].some(c=>adCamps.has(c))) continue;
-    }
-    const byDate=S.sessao.metaByAdByDate[adName]||{};
-    let spend=0,clicks=0,impressions=0,igUrl="";
-    for(const [dt,vals] of Object.entries(byDate)){
-      if(dt>=start&&dt<=end){spend+=vals.spend;clicks+=vals.clicks;impressions+=vals.impressions;if(!igUrl&&vals.igUrl)igUrl=vals.igUrl;}
-    }
-    if(spend===0) continue;
-    if(!igUrl) igUrl=metaAd.igUrl||"";
-    let leads=0;
-    for(const adId of (metaAd.adIds||[])){
-      const byDate2=S.sessao.leadsByAdId[adId]||{};
-      for(const [dt,n] of Object.entries(byDate2)){ if(dt>=start&&dt<=end) leads+=n; }
-    }
-    rAdRows.push({adName,spend,clicks,impressions,leads,igUrl,
-      cpc:clicks>0?spend/clicks:0, ctr:impressions>0?(clicks/impressions)*100:0,
-      cpm:impressions>0?(spend/impressions)*1000:0, cpf:leads>0?spend/leads:0});
-  }
-  rAdRows.sort((a,b)=>b.spend-a.spend);
-  const _raq=(S.sessao.adSearch||"").trim().toLowerCase();
-  const rFilteredAds=_raq?rAdRows.filter(a=>a.adName.toLowerCase().includes(_raq)):rAdRows;
-
-  const rSelAds=rAdRows.filter(a=>S.sessao.selectedAds.has(a.adName));
-  let rAdResumoText="";
-  if(rSelAds.length){
-    const lines=[`*Melhores ads - Sessão Estratégica*`,"",`_${dateLabel}_`,""];
-    for(const a of rSelAds){
-      const cpfE=em(a.cpf,META_CPF,false), cpcE=em(a.cpc,METAS_T_S.cpc.val,false),
-            ctrE=em(a.ctr,METAS_T_S.ctr.val,true), cpmE=em(a.cpm,METAS_T_S.cpm.val,false);
-      lines.push(`Nome do ad ⤵️`);
-      lines.push(a.adName);
-      if(a.igUrl) lines.push(a.igUrl);
-      lines.push(`Investimento:\t${fBRLR(a.spend)}`);
-      lines.push(`Formulários:\t${a.leads}`);
-      lines.push(`Custo por Formulário:\t${a.leads>0?fBRLR(a.cpf):"—"}\t${cpfE} Meta: R$ ${fN(META_CPF)}`);
-      lines.push(``);
-      lines.push(`CPC:\t${fBRLR(a.cpc)}\t${cpcE} Meta: R$ ${fN(METAS_T_S.cpc.val)}`);
-      lines.push(`CTR:\t${a.ctr.toFixed(2)}%\t${ctrE} Meta: ${METAS_T_S.ctr.val}%`);
-      lines.push(`CPM:\t${fBRLR(a.cpm)}\t${cpmE} Meta: R$ ${fN(METAS_T_S.cpm.val)}`);
-      lines.push(``);
-    }
-    rAdResumoText=lines.join("\n");
-  }
-
-  function rChk(checked){
-    return `<div style="width:16px;height:16px;border-radius:4px;border:2px solid ${checked?"#10b981":"rgba(255,255,255,.2)"};background:${checked?"#10b981":"transparent"};display:flex;align-items:center;justify-content:center;margin:auto">
-      ${checked?`<svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4L4 7L9 1" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`:""}
-    </div>`;
-  }
-  const selectorHtml=`
-  <div style="margin-top:24px">
-    <div class="hdr" style="margin-bottom:6px">
-      <div>
-        <div class="hdr-title" style="font-size:15px">Selecionar campanha / anúncios</div>
-        <div class="hdr-sub">${rFilteredCamps.length} campanhas · ${rFilteredAds.length} anúncios${S.sessao.selectedAds.size?` · ${S.sessao.selectedAds.size} selecionado${S.sessao.selectedAds.size>1?"s":""}`:""}</div>
-      </div>
-    </div>
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-      <input id="camp-search-resumo" oninput="setCampSearch(this.value)" value="${(S.sessao.campSearch||"").replace(/"/g,"&quot;")}" placeholder="Buscar campanha…"
-        style="flex:1;padding:7px 12px;background:var(--surf);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:12px;outline:none"/>
-      ${rHasCampSel?`<button onclick="clearCamps()" style="font-size:10px;padding:5px 10px;border-radius:6px;background:rgba(59,130,246,.15);border:1px solid rgba(96,165,250,.3);color:#93c5fd;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap">✕ Limpar (${S.sessao.selectedCamps.size})</button>`:""}
-    </div>
-    <div style="background:var(--card);border:1px solid var(--border);border-radius:14px;overflow:hidden;margin-bottom:16px;max-height:260px;overflow-y:auto">
-      <table style="width:100%;border-collapse:collapse;font-size:11px">
-        <thead><tr style="position:sticky;top:0;background:var(--card)">
-          <th style="width:32px;padding:8px;border-bottom:1px solid var(--border)"></th>
-          <th style="padding:8px 12px;text-align:left;font-size:9px;color:var(--hint);text-transform:uppercase;border-bottom:1px solid var(--border)">Campanha</th>
-          <th style="padding:8px 12px;text-align:right;font-size:9px;color:var(--hint);text-transform:uppercase;border-bottom:1px solid var(--border)">Invest.</th>
-          <th style="padding:8px 12px;text-align:right;font-size:9px;color:var(--hint);text-transform:uppercase;border-bottom:1px solid var(--border)">CTR</th>
-          <th style="padding:8px 12px;text-align:right;font-size:9px;color:var(--hint);text-transform:uppercase;border-bottom:1px solid var(--border)">CPM</th>
-        </tr></thead>
-        <tbody>
-          ${rFilteredCamps.length===0?`<tr><td colspan="5" style="padding:16px;text-align:center;color:var(--hint);font-size:11px">Nenhuma campanha no período</td></tr>`:""}
-          ${rFilteredCamps.map(c=>{
-            const sel=S.sessao.selectedCamps.has(c.campName);
-            const safe=c.campName.replace(/\\/g,"\\\\").replace(/'/g,"\\'");
-            return `<tr onclick="toggleCamp('${safe}')" style="cursor:pointer;border-top:1px solid var(--border);background:${sel?"rgba(16,185,129,.1)":"transparent"}">
-              <td style="padding:7px 8px;text-align:center">${rChk(sel)}</td>
-              <td style="padding:7px 12px;font-size:11px;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:${sel?"#10b981":"var(--text)"};font-weight:${sel?600:400}" title="${c.campName}">${c.campName}</td>
-              <td style="padding:7px 12px;text-align:right;font-family:'JetBrains Mono',monospace">${fBRLR(c.spend)}</td>
-              <td style="padding:7px 12px;text-align:right;font-family:'JetBrains Mono',monospace">${c.ctr.toFixed(2)}%</td>
-              <td style="padding:7px 12px;text-align:right;font-family:'JetBrains Mono',monospace">${fBRLR(c.cpm)}</td>
-            </tr>`;
-          }).join("")}
-        </tbody>
-      </table>
-    </div>
-
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-      <input id="ad-search-resumo" oninput="setAdSearch(this.value)" value="${(S.sessao.adSearch||"").replace(/"/g,"&quot;")}" placeholder="Buscar anúncio…"
-        style="flex:1;padding:7px 12px;background:var(--surf);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:12px;outline:none"/>
-      ${S.sessao.selectedAds.size>0?`<button onclick="clearAds()" style="font-size:10px;padding:5px 10px;border-radius:6px;background:rgba(16,185,129,.12);border:1px solid rgba(16,185,129,.3);color:#6ee7b7;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap">✕ Limpar (${S.sessao.selectedAds.size})</button>`:""}
-    </div>
-    <div style="background:var(--card);border:1px solid var(--border);border-radius:14px;overflow:hidden;max-height:280px;overflow-y:auto">
-      <table style="width:100%;border-collapse:collapse;font-size:11px">
-        <thead><tr style="position:sticky;top:0;background:var(--card)">
-          <th style="width:32px;padding:8px;border-bottom:1px solid var(--border)"></th>
-          <th style="padding:8px 12px;text-align:left;font-size:9px;color:var(--hint);text-transform:uppercase;border-bottom:1px solid var(--border)">Anúncio</th>
-          <th style="padding:8px 12px;text-align:right;font-size:9px;color:var(--hint);text-transform:uppercase;border-bottom:1px solid var(--border)">Invest.</th>
-          <th style="padding:8px 12px;text-align:right;font-size:9px;color:var(--hint);text-transform:uppercase;border-bottom:1px solid var(--border)">Formulários</th>
-          <th style="padding:8px 12px;text-align:right;font-size:9px;color:var(--hint);text-transform:uppercase;border-bottom:1px solid var(--border)">Custo/Form.</th>
-        </tr></thead>
-        <tbody>
-          ${rFilteredAds.length===0?`<tr><td colspan="5" style="padding:16px;text-align:center;color:var(--hint);font-size:11px">${rHasCampSel?"Nenhum anúncio nas campanhas selecionadas":"Nenhum anúncio no período"}</td></tr>`:""}
-          ${rFilteredAds.map(a=>{
-            const sel=S.sessao.selectedAds.has(a.adName);
-            const safe=a.adName.replace(/\\/g,"\\\\").replace(/'/g,"\\'");
-            return `<tr onclick="toggleAd('${safe}')" style="cursor:pointer;border-top:1px solid var(--border);background:${sel?"rgba(16,185,129,.1)":"transparent"}">
-              <td style="padding:7px 8px;text-align:center">${rChk(sel)}</td>
-              <td style="padding:7px 12px;font-size:11px;color:${sel?"#10b981":"var(--text)"};font-weight:${sel?600:400};max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${a.adName}">${a.adName}</td>
-              <td style="padding:7px 12px;text-align:right;font-family:'JetBrains Mono',monospace">${fBRLR(a.spend)}</td>
-              <td style="padding:7px 12px;text-align:right;font-family:'JetBrains Mono',monospace">${a.leads}</td>
-              <td style="padding:7px 12px;text-align:right;font-family:'JetBrains Mono',monospace">${a.leads>0?fBRLR(a.cpf):"—"}</td>
-            </tr>`;
-          }).join("")}
-        </tbody>
-      </table>
-    </div>
-
-    ${rSelAds.length>0?`
-    <div style="margin-top:16px;background:var(--card);border:1px solid rgba(16,185,129,.3);border-radius:14px;padding:18px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-        <div>
-          <div class="section-lbl" style="margin:0;color:#6ee7b7">Resumo de Anúncios</div>
-          <div style="font-size:10px;color:var(--hint);margin-top:2px">${rSelAds.length} ad(s) · ${dateLabel}</div>
-        </div>
-        <button onclick="copyResumoAdsSessao()" style="font-size:11px;font-weight:600;padding:6px 14px;border-radius:8px;border:1px solid rgba(16,185,129,.4);background:rgba(16,185,129,.15);color:#6ee7b7;cursor:pointer;font-family:'DM Sans',sans-serif">📋 Copiar resumo</button>
-      </div>
-      <pre id="resumo-ads-preview-sessao" style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text);white-space:pre-wrap;line-height:1.8;margin:0;user-select:all">${rAdResumoText.replace(/&/g,"&amp;").replace(/</g,"&lt;")}</pre>
-    </div>`:""}
-  </div>`;
-
   // Visual blocks
   function row(lbl,val,metaStr,emoji){
     return `<div style="display:grid;grid-template-columns:220px 1fr auto;gap:8px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.04);align-items:center">
@@ -4556,25 +4692,15 @@ _${dateLabel}_\t\t
       <div style="background:var(--card);border:1px solid var(--border);border-radius:14px;padding:24px;position:sticky;top:70px">
         <pre id="resumo-preview" style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text);white-space:pre-wrap;line-height:1.8;margin:0;user-select:all">${resumoText.replace(/&/g,"&amp;").replace(/</g,"&lt;")}</pre>
       </div>
-    </div>
-    ${selectorHtml}`;
+    </div>`;
   el._resumoText=resumoText;
-  el._adResumoTextSessao=rAdResumoText;
   requestAnimationFrame(()=>{
     const fid=document.activeElement?.id;
-    if(fid==="manual-spend-input"||fid==="plan-invest-input"||fid==="plan-form-input"||fid==="camp-search-resumo"||fid==="ad-search-resumo"){
+    if(fid==="manual-spend-input"||fid==="plan-invest-input"||fid==="plan-form-input"){
       const _s=document.getElementById(fid);
       if(_s){const _l=_s.value.length;_s.setSelectionRange(_l,_l);}
     }
   });
-}
-function copyResumoAdsSessao(){
-  const el=document.getElementById("page-resumo");
-  const text=el?._adResumoTextSessao||""; if(!text) return;
-  navigator.clipboard.writeText(text).then(()=>{
-    const btns=document.querySelectorAll("button");
-    btns.forEach(b=>{if(b.textContent.includes("Copiar resumo")){const orig=b.innerHTML;b.innerHTML="✓ Copiado!";setTimeout(()=>{b.innerHTML=orig;},1800);}});
-  }).catch(()=>alert("Selecione o texto manualmente."));
 }
 
 function setManualSpendHojeSessao(v){
@@ -4697,161 +4823,6 @@ ${blockText("-> Ontem",ontem,{conversao:true})}
 
 ${blockText("-> Hoje",hoje,{})}`;
 
-  // ── Seletor "campanha → anúncios" (Resumo diário) ─────────────────────────
-  // Clicar numa campanha filtra os anúncios abaixo pra só os dela; clicar em anúncios
-  // seleciona; com ≥1 anúncio selecionado, gera automaticamente um texto de resumo por
-  // anúncio já com as metas do funil (META_CPV/METAS_T) e emoji de grading — mesmo
-  // critério usado nos blocos Total/Ontem/Hoje acima.
-  const rCampRows=[];
-  for(const [campName,byDate] of Object.entries(d.metaByCampByDate||{})){
-    let cSpend=0,cClicks=0,cImpr=0;
-    for(const [dt,vals] of Object.entries(byDate)){
-      if(dt>=start&&dt<=end){cSpend+=vals.spend;cClicks+=vals.clicks;cImpr+=vals.impressions;}
-    }
-    if(cSpend===0)continue;
-    rCampRows.push({campName,spend:cSpend,clicks:cClicks,impressions:cImpr,
-      ctr:cImpr>0?(cClicks/cImpr)*100:0, cpm:cImpr>0?(cSpend/cImpr)*1000:0});
-  }
-  rCampRows.sort((a,b)=>b.spend-a.spend);
-  const _rcq=(d.campSearch||"").trim().toLowerCase();
-  const rFilteredCamps=_rcq?rCampRows.filter(c=>c.campName.toLowerCase().includes(_rcq)):rCampRows;
-
-  const rHasCampSel=d.selectedCamps.size>0;
-  const rAdRows=[];
-  for(const [advCode,adMeta] of Object.entries(d.metaByAd||{})){
-    if(rHasCampSel){
-      const adCamps=adMeta.camps||new Set();
-      if(![...d.selectedCamps].some(c=>adCamps.has(c))) continue;
-    }
-    const byDate=d.metaByAdByDate[advCode]||{};
-    let spend=0,clicks=0,impressions=0;
-    for(const [dt,vals] of Object.entries(byDate)){
-      if(dt>=start&&dt<=end){spend+=vals.spend;clicks+=vals.clicks;impressions+=vals.impressions;}
-    }
-    if(spend===0) continue;
-    let qtd=0;
-    for(const adId of (adMeta.adIds||[])){
-      const byD=d.vendasByAdDate[adId]||{};
-      for(const [vd,vv] of Object.entries(byD)){ if(vd>=start&&vd<=end) qtd+=vv.qtd; }
-    }
-    rAdRows.push({advCode,spend,clicks,impressions,qtd,igUrl:adMeta.igUrl||"",
-      cpc:clicks>0?spend/clicks:0, ctr:impressions>0?(clicks/impressions)*100:0,
-      cpm:impressions>0?(spend/impressions)*1000:0, cpv:qtd>0?spend/qtd:0});
-  }
-  rAdRows.sort((a,b)=>b.spend-a.spend);
-  const _raq=(d.adSearch||"").trim().toLowerCase();
-  const rFilteredAds=_raq?rAdRows.filter(a=>a.advCode.toLowerCase().includes(_raq)):rAdRows;
-
-  const rSelAds=rAdRows.filter(a=>d.selectedAds.has(a.advCode));
-  let rAdResumoText="";
-  if(rSelAds.length){
-    const lines=[`*Melhores ads - ${offerTitle}*`,"",`_${dateLabel}_`,""];
-    for(const a of rSelAds){
-      const cpvE=em(a.cpv,META_CPV,false), cpcE=em(a.cpc,METAS_T.cpc.val,false),
-            ctrE=em(a.ctr,METAS_T.ctr.val,true), cpmE=em(a.cpm,METAS_T.cpm.val,false);
-      lines.push(`Nome do ad ⤵️`);
-      lines.push(a.advCode);
-      if(a.igUrl) lines.push(a.igUrl);
-      lines.push(`Investimento:\t${fBRLR(a.spend)}`);
-      lines.push(`${vendasLbl}:\t${a.qtd}`);
-      lines.push(`Custo por venda:\t${a.qtd>0?fBRLR(a.cpv):"—"}\t${cpvE} Meta: ${fBRLR(META_CPV)}`);
-      lines.push(``);
-      lines.push(`CPC:\t${fBRLR(a.cpc)}\t${cpcE} Meta: ${fBRLR(METAS_T.cpc.val)}`);
-      lines.push(`CTR:\t${a.ctr.toFixed(2)}%\t${ctrE} Meta: ${METAS_T.ctr.val}%`);
-      lines.push(`CPM:\t${fBRLR(a.cpm)}\t${cpmE} Meta: ${fBRLR(METAS_T.cpm.val)}`);
-      lines.push(``);
-    }
-    rAdResumoText=lines.join("\n");
-  }
-
-  function rChk(checked){
-    return `<div style="width:16px;height:16px;border-radius:4px;border:2px solid ${checked?"#10b981":"rgba(255,255,255,.2)"};background:${checked?"#10b981":"transparent"};display:flex;align-items:center;justify-content:center;margin:auto">
-      ${checked?`<svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4L4 7L9 1" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`:""}
-    </div>`;
-  }
-  const selectorHtml=`
-  <div style="margin-top:24px">
-    <div class="hdr" style="margin-bottom:6px">
-      <div>
-        <div class="hdr-title" style="font-size:15px">Selecionar campanha / anúncios</div>
-        <div class="hdr-sub">${rFilteredCamps.length} campanhas · ${rFilteredAds.length} anúncios${d.selectedAds.size?` · ${d.selectedAds.size} selecionado${d.selectedAds.size>1?"s":""}`:""}</div>
-      </div>
-    </div>
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-      <input id="camp-search-mm" oninput="setCampSearchMM(this.value)" value="${(d.campSearch||"").replace(/"/g,"&quot;")}" placeholder="Buscar campanha…"
-        style="flex:1;padding:7px 12px;background:var(--surf);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:12px;outline:none"/>
-      ${rHasCampSel?`<button onclick="clearCampsMM()" style="font-size:10px;padding:5px 10px;border-radius:6px;background:rgba(59,130,246,.15);border:1px solid rgba(96,165,250,.3);color:#93c5fd;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap">✕ Limpar (${d.selectedCamps.size})</button>`:""}
-    </div>
-    <div style="background:var(--card);border:0.5px solid var(--border-h);border-radius:12px;overflow:hidden;margin-bottom:16px;max-height:260px;overflow-y:auto">
-      <table style="width:100%;border-collapse:collapse;font-size:11px">
-        <thead><tr style="position:sticky;top:0;background:var(--card)">
-          <th style="width:32px;padding:8px;border-bottom:1px solid var(--border)"></th>
-          <th style="padding:8px 12px;text-align:left;font-size:9px;color:var(--hint);text-transform:uppercase;border-bottom:1px solid var(--border)">Campanha</th>
-          <th style="padding:8px 12px;text-align:right;font-size:9px;color:var(--hint);text-transform:uppercase;border-bottom:1px solid var(--border)">Invest.</th>
-          <th style="padding:8px 12px;text-align:right;font-size:9px;color:var(--hint);text-transform:uppercase;border-bottom:1px solid var(--border)">CTR</th>
-          <th style="padding:8px 12px;text-align:right;font-size:9px;color:var(--hint);text-transform:uppercase;border-bottom:1px solid var(--border)">CPM</th>
-        </tr></thead>
-        <tbody>
-          ${rFilteredCamps.length===0?`<tr><td colspan="5" style="padding:16px;text-align:center;color:var(--hint);font-size:11px">Nenhuma campanha no período</td></tr>`:""}
-          ${rFilteredCamps.map(c=>{
-            const sel=d.selectedCamps.has(c.campName);
-            const safe=c.campName.replace(/\\/g,"\\\\").replace(/'/g,"\\'");
-            return `<tr onclick="toggleCampMM('${safe}')" style="cursor:pointer;border-top:1px solid var(--border);background:${sel?"rgba(16,185,129,.1)":"transparent"}">
-              <td style="padding:7px 8px;text-align:center">${rChk(sel)}</td>
-              <td style="padding:7px 12px;font-size:11px;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:${sel?"#10b981":"var(--text)"};font-weight:${sel?600:400}" title="${c.campName}">${c.campName}</td>
-              <td style="padding:7px 12px;text-align:right;font-family:'DM Mono',monospace">${fBRLR(c.spend)}</td>
-              <td style="padding:7px 12px;text-align:right;font-family:'DM Mono',monospace">${c.ctr.toFixed(2)}%</td>
-              <td style="padding:7px 12px;text-align:right;font-family:'DM Mono',monospace">${fBRLR(c.cpm)}</td>
-            </tr>`;
-          }).join("")}
-        </tbody>
-      </table>
-    </div>
-
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-      <input id="ad-search-mm" oninput="setAdSearchMM(this.value)" value="${(d.adSearch||"").replace(/"/g,"&quot;")}" placeholder="Buscar anúncio…"
-        style="flex:1;padding:7px 12px;background:var(--surf);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:12px;outline:none"/>
-      ${d.selectedAds.size>0?`<button onclick="clearAdsMM()" style="font-size:10px;padding:5px 10px;border-radius:6px;background:rgba(16,185,129,.12);border:1px solid rgba(16,185,129,.3);color:#6ee7b7;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap">✕ Limpar (${d.selectedAds.size})</button>`:""}
-    </div>
-    <div style="background:var(--card);border:0.5px solid var(--border-h);border-radius:12px;overflow:hidden;max-height:280px;overflow-y:auto">
-      <table style="width:100%;border-collapse:collapse;font-size:11px">
-        <thead><tr style="position:sticky;top:0;background:var(--card)">
-          <th style="width:32px;padding:8px;border-bottom:1px solid var(--border)"></th>
-          <th style="padding:8px 12px;text-align:left;font-size:9px;color:var(--hint);text-transform:uppercase;border-bottom:1px solid var(--border)">Anúncio</th>
-          <th style="padding:8px 12px;text-align:right;font-size:9px;color:var(--hint);text-transform:uppercase;border-bottom:1px solid var(--border)">Invest.</th>
-          <th style="padding:8px 12px;text-align:right;font-size:9px;color:var(--hint);text-transform:uppercase;border-bottom:1px solid var(--border)">${vendasLbl}</th>
-          <th style="padding:8px 12px;text-align:right;font-size:9px;color:var(--hint);text-transform:uppercase;border-bottom:1px solid var(--border)">Custo/Venda</th>
-        </tr></thead>
-        <tbody>
-          ${rFilteredAds.length===0?`<tr><td colspan="5" style="padding:16px;text-align:center;color:var(--hint);font-size:11px">${rHasCampSel?"Nenhum anúncio nas campanhas selecionadas":"Nenhum anúncio no período"}</td></tr>`:""}
-          ${rFilteredAds.map(a=>{
-            const sel=d.selectedAds.has(a.advCode);
-            const safe=a.advCode.replace(/\\/g,"\\\\").replace(/'/g,"\\'");
-            return `<tr onclick="toggleAdMM('${safe}')" style="cursor:pointer;border-top:1px solid var(--border);background:${sel?"rgba(16,185,129,.1)":"transparent"}">
-              <td style="padding:7px 8px;text-align:center">${rChk(sel)}</td>
-              <td style="padding:7px 12px;font-size:11px;color:${sel?"#10b981":"var(--text)"};font-weight:${sel?600:400}">${a.advCode}</td>
-              <td style="padding:7px 12px;text-align:right;font-family:'DM Mono',monospace">${fBRLR(a.spend)}</td>
-              <td style="padding:7px 12px;text-align:right;font-family:'DM Mono',monospace">${a.qtd}</td>
-              <td style="padding:7px 12px;text-align:right;font-family:'DM Mono',monospace">${a.qtd>0?fBRLR(a.cpv):"—"}</td>
-            </tr>`;
-          }).join("")}
-        </tbody>
-      </table>
-    </div>
-
-    ${rSelAds.length>0?`
-    <div style="margin-top:16px;background:var(--card);border:0.5px solid rgba(16,185,129,.3);border-radius:12px;padding:18px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-        <div>
-          <div class="section-lbl" style="margin:0;color:#6ee7b7">Resumo de Anúncios</div>
-          <div style="font-size:10px;color:var(--hint);margin-top:2px">${rSelAds.length} ad(s) · ${dateLabel}</div>
-        </div>
-        <button onclick="copyResumoAdsMM()" style="font-size:11px;font-weight:600;padding:6px 14px;border-radius:8px;border:1px solid rgba(16,185,129,.4);background:rgba(16,185,129,.15);color:#6ee7b7;cursor:pointer;font-family:'DM Sans',sans-serif">📋 Copiar resumo</button>
-      </div>
-      <pre id="resumo-ads-preview-mm" style="font-family:'DM Mono',monospace;font-size:11px;color:var(--text);white-space:pre-wrap;line-height:1.8;margin:0;user-select:all">${rAdResumoText.replace(/&/g,"&amp;").replace(/</g,"&lt;")}</pre>
-    </div>`:""}
-  </div>`;
-
   function row(lbl,val,metaStr,emoji){
     return `<div style="display:grid;grid-template-columns:220px 1fr auto;gap:8px;padding:5px 0;border-bottom:0.5px solid var(--border);align-items:center">
       <span style="color:var(--muted);font-size:12px">${lbl}</span>
@@ -4924,13 +4895,11 @@ ${blockText("-> Hoje",hoje,{})}`;
       <div style="background:var(--card);border:0.5px solid var(--border-h);border-radius:12px;padding:20px;position:sticky;top:16px">
         <pre id="resumo-preview-mm" style="font-family:'DM Mono',monospace;font-size:11px;color:var(--text);white-space:pre-wrap;line-height:1.8;margin:0;user-select:all">${resumoText.replace(/&/g,"&amp;").replace(/</g,"&lt;")}</pre>
       </div>
-    </div>
-    ${selectorHtml}`;
+    </div>`;
   el._resumoText=resumoText;
-  el._adResumoTextMM=rAdResumoText;
   requestAnimationFrame(()=>{
     const fid=document.activeElement?.id;
-    if(fid==="manual-spend-input-mm"||fid==="camp-search-mm"||fid==="ad-search-mm"){
+    if(fid==="manual-spend-input-mm"){
       const s=document.getElementById(fid);
       if(s){const l=s.value.length;s.setSelectionRange(l,l);}
     }
@@ -4939,19 +4908,19 @@ ${blockText("-> Hoje",hoje,{})}`;
 function toggleCampMM(name){
   const d=D();
   if(d.selectedCamps.has(name)) d.selectedCamps.delete(name); else d.selectedCamps.add(name);
-  renderResumo();
+  renderAnuncios();
 }
-function clearCampsMM(){ D().selectedCamps.clear(); renderResumo(); }
+function clearCampsMM(){ D().selectedCamps.clear(); renderAnuncios(); }
 function toggleAdMM(code){
   const d=D();
   if(d.selectedAds.has(code)) d.selectedAds.delete(code); else d.selectedAds.add(code);
-  renderResumo();
+  renderAnuncios();
 }
-function clearAdsMM(){ D().selectedAds.clear(); renderResumo(); }
-function setCampSearchMM(v){ D().campSearch=v; renderResumo(); }
-function setAdSearchMM(v){ D().adSearch=v; renderResumo(); }
+function clearAdsMM(){ D().selectedAds.clear(); renderAnuncios(); }
+function setCampSearchMM(v){ D().campSearch=v; renderAnuncios(); }
+function setAdSearchMM(v){ D().adSearch=v; renderAnuncios(); }
 function copyResumoAdsMM(){
-  const el=document.getElementById("page-resumo");
+  const el=document.getElementById("page-anuncios");
   const text=el?._adResumoTextMM||""; if(!text) return;
   navigator.clipboard.writeText(text).then(()=>{
     const btns=document.querySelectorAll("button");
