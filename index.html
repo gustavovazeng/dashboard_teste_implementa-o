@@ -254,6 +254,7 @@ const S = {
   cSort:{col:"spend",dir:"desc"},
   campSearch:"",
   adSearch:"",
+  tempFilter:"todas",
   manualSpendHoje:null,
   selectedCamps:new Set(),
   selectedAds:new Set(),
@@ -307,9 +308,18 @@ function statusBorder(val,meta,higherIsBetter){
 // ── Ad code extractor ─────────────────────────────────────────────────────
 function extractTemp(campName){
   const s=(campName||"").toLowerCase();
+  // 1) palavra da temperatura no nome da campanha
   if(s.includes("frio"))return"frio";
+  if(s.includes("morno"))return"morno";
   if(s.includes("quente"))return"quente";
-  return"";
+  // 2) sem palavra: usa o prefixo numérico do nome ("07_..." = frio, "09_..." = quente)
+  const m=s.match(/^(\d+)_/);
+  if(m){
+    if(m[1]==="07")return"frio";
+    if(m[1]==="09")return"quente";
+  }
+  // 3) qualquer outro caso (sem prefixo, prefixo 08/10 etc.) = quente
+  return"quente";
 }
 function extractAdvCode(name){
   if(!name) return null;
@@ -615,7 +625,22 @@ async function loadData(force=false){
 }
 
 // ── Derived metrics ───────────────────────────────────────────────────────
-function getDaily(start,end){
+// temp: null/"todas" = sem filtro (usa S.meta/S.leadsD); "frio"/"morno"/"quente" = usa S.metaTemp/S.leadsTemp
+function getDaily(start,end,temp){
+  if(temp&&temp!=="todas"){
+    const mT=S.metaTemp[temp]||{}, lT=S.leadsTemp[temp]||{};
+    const allDates=new Set([...Object.keys(mT),...Object.keys(lT)]);
+    return Array.from(allDates).sort().filter(d=>d>=start&&d<=end).map(date=>{
+      const m=mT[date]||{spend:0};
+      const l=lT[date]||{traffic:0,mql:0};
+      const spend=m.spend||0,trafficLeads=l.traffic||0,mql=l.mql||0;
+      return{date,label:fDate(date),spend,
+        trafficLeads,organicLeads:0,mql,
+        cpl:trafficLeads>0?spend/trafficLeads:0,
+        cpmql:mql>0?spend/mql:0,
+      };
+    });
+  }
   const allDates=new Set([...Object.keys(S.meta),...Object.keys(S.leadsD)]);
   return Array.from(allDates).sort().filter(d=>d>=start&&d<=end).map(date=>{
     const m=S.meta[date]||{spend:0,clicks:0,impressions:0,metaLeads:0,landingViews:0};
@@ -744,6 +769,7 @@ function sortAnuncios(col){
 }
 function setCampSearch(v){S.campSearch=v;_isSeg()?renderAnunciosSeg():renderAnuncios();}
 function setAdSearch(v){S.adSearch=v;_isSeg()?renderAnunciosSeg():renderAnuncios();}
+function setTempFilter(t){S.tempFilter=t;renderPrincipal();}
 function setManualSpendHoje(v){
   const cleaned=v.replace(/[Rr$\s]/g,"").replace(/\./g,"").replace(",",".");
   const n=parseFloat(cleaned);
@@ -1034,20 +1060,26 @@ function statusLegend(){
 }
 
 // ── Render Principal ──────────────────────────────────────────────────────
+const TEMP_OPTS=[{k:"todas",lbl:"Todas"},{k:"frio",lbl:"Frio"},{k:"morno",lbl:"Morno"},{k:"quente",lbl:"Quente"}];
 function renderPrincipal(){
   const el=document.getElementById("page-principal");if(!el)return;
-  const daily=getDaily(S.startDate,S.endDate);
+  const tf=S.tempFilter||"todas";
+  const daily=getDaily(S.startDate,S.endDate,tf);
   const tot=getTotals(daily);
   const cplC=statusColor(tot.cpl,META_CPL,false);
   el.innerHTML=`
     <div class="hdr" style="margin-bottom:6px">
       <div>
         <div class="hdr-title">D2D — Sessão Estratégica</div>
-        <div class="hdr-sub">atualizado em: ${S.updated||"—"}${daily.length>0?` · ${daily.length} dias`:""}</div>
+        <div class="hdr-sub">atualizado em: ${S.updated||"—"}${daily.length>0?` · ${daily.length} dias`:""}${tf!=="todas"?` · temperatura: ${TEMP_OPTS.find(o=>o.k===tf).lbl}`:""}</div>
       </div>
       <div style="display:flex;align-items:center;gap:16px">${statusLegend()}</div>
     </div>
     ${S.error?`<div class="err">⚠️ ${S.error}</div>`:""}
+    <div class="tf-wrap" style="margin-bottom:14px">
+      <span class="tf-lbl">Temperatura:</span>
+      ${TEMP_OPTS.map(o=>`<button class="tf-btn${tf===o.k?" active":""}" onclick="setTempFilter('${o.k}')">${o.lbl}</button>`).join("")}
+    </div>
     <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:13px;margin-bottom:16px">
       ${kpiCard("Investimento",fBRL(tot.spend),"","var(--text-strong)")}
       ${kpiCard("Aplicações (Leads)",tot.trafficLeads.toLocaleString("pt-BR"),"","var(--text-strong)")}
