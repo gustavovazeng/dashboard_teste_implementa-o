@@ -236,8 +236,6 @@ const S = {
   metaTemp:{},
   leadsTemp:{},
   adIdToCampName:{}, adIdToAdvCode:{},
-  linkedinMeta:{}, linkedinError:null,
-  trafficFilter:"all",
   leadsFat:{},
   leadsDesafio:{},
   leadsDisp:{},
@@ -394,7 +392,7 @@ function parseSheet(json){
 
 // ── Load data ─────────────────────────────────────────────────────────────
 async function loadData(force=false){
-  S.loading=true; S.error=null; S.distError=null; S.linkedinError=null; render();
+  S.loading=true; S.error=null; S.distError=null; render();
   try{
     // Fetches da Sessão Estratégica (obrigatórios)
     const [metaText, leadsText] = await Promise.all([
@@ -411,16 +409,6 @@ async function loadData(force=false){
     }catch(segErr){
       S.distError="Não foi possível carregar Base Seguidores: "+segErr.message;
       console.warn("Base Seguidores:",segErr.message);
-    }
-    // Fetch LinkedIn (independente)
-    let linkedinText="";
-    try{
-      const lr=await fetch(GS_URL("Base Linkedin"));
-      if(!lr.ok)throw new Error("Status "+lr.status);
-      linkedinText=await lr.text();
-    }catch(liErr){
-      S.linkedinError="Não foi possível carregar Base Linkedin: "+liErr.message;
-      console.warn("Base Linkedin:",liErr.message);
     }
     const mj = parseCSVText(metaText);
     const lj = parseCSVText(leadsText);
@@ -613,22 +601,6 @@ async function loadData(force=false){
     S.distMetaByAdByDate=dMetaByAdByDate;S.distMetaByCampByDate=dMetaByCampByDate;
     S.distSeg=dSeg;S.distSegByCamp=dSegByCamp;S.distSegByAd=dSegByAd;
 
-    // ── Process Base Linkedin ─────────────────────────────────────────────
-    // Colunas (posicional — header tem "Campaign Name" duplicado):
-    // [0] Date  [1] Cost  [2] Action Clicks  [3] Impressions  [5] Campaign Name
-    const liRows=(parseCSVText(linkedinText).values||[]);
-    const liMeta={};
-    for(const row of liRows.slice(1)){
-      if(!row||!row[0])continue;
-      const d=toISO(row[0].trim());if(!d)continue;
-      const sp=parseFloat((row[1]||"0").replace(",","."))||0;
-      const cl=parseInt(row[2]||0)||0;
-      const im=parseInt(row[3]||0)||0;
-      if(!liMeta[d])liMeta[d]={spend:0,clicks:0,impressions:0};
-      liMeta[d].spend+=sp;liMeta[d].clicks+=cl;liMeta[d].impressions+=im;
-    }
-    S.linkedinMeta=liMeta;
-
     const allDates=Object.keys(mD).sort();
     S.updated=allDates.length?fDateBR(allDates[allDates.length-1]):"—";
     if(!S.startDate){S.startDate=nDaysAgoISO(29);S.endDate=todayISO();S.activeQuick="30d";}
@@ -772,7 +744,6 @@ function sortAnuncios(col){
 }
 function setCampSearch(v){S.campSearch=v;_isSeg()?renderAnunciosSeg():renderAnuncios();}
 function setAdSearch(v){S.adSearch=v;_isSeg()?renderAnunciosSeg():renderAnuncios();}
-function setTrafficFilter(f){S.trafficFilter=f;renderPrincipal();}
 function setManualSpendHoje(v){
   const cleaned=v.replace(/[Rr$\s]/g,"").replace(/\./g,"").replace(",",".");
   const n=parseFloat(cleaned);
@@ -1065,32 +1036,9 @@ function statusLegend(){
 // ── Render Principal ──────────────────────────────────────────────────────
 function renderPrincipal(){
   const el=document.getElementById("page-principal");if(!el)return;
-  const metaDaily=getDaily(S.startDate,S.endDate);
-  // Merge datas Meta + LinkedIn no período
-  const allDatesSet=new Set([...metaDaily.map(d=>d.date),...Object.keys(S.linkedinMeta).filter(d=>d>=S.startDate&&d<=S.endDate)]);
-  const metaByDate=Object.fromEntries(metaDaily.map(d=>[d.date,d]));
-  const daily=Array.from(allDatesSet).sort().map(date=>{
-    const m=metaByDate[date]||{date,label:fDate(date),spend:0,trafficLeads:0,organicLeads:0,mql:0,cpl:0,cpmql:0};
-    const liSpend=(S.linkedinMeta[date]||{spend:0}).spend;
-    let spend,trafficLeads,mql;
-    if(S.trafficFilter==="linkedin"){
-      // LinkedIn não tem atribuição de leads/MQL ainda — mostra só o investimento da plataforma
-      spend=liSpend; trafficLeads=0; mql=0;
-    } else if(S.trafficFilter==="all"){
-      spend=m.spend+liSpend; trafficLeads=m.trafficLeads; mql=m.mql;
-    } else {
-      // meta
-      spend=m.spend; trafficLeads=m.trafficLeads; mql=m.mql;
-    }
-    return{...m,spend,trafficLeads,mql,
-      cpl:trafficLeads>0?spend/trafficLeads:0,
-      cpmql:mql>0?spend/mql:0,
-    };
-  });
+  const daily=getDaily(S.startDate,S.endDate);
   const tot=getTotals(daily);
   const cplC=statusColor(tot.cpl,META_CPL,false);
-  const liHasData=Object.keys(S.linkedinMeta).length>0;
-  const f=S.trafficFilter;
   el.innerHTML=`
     <div class="hdr" style="margin-bottom:6px">
       <div>
@@ -1100,12 +1048,6 @@ function renderPrincipal(){
       <div style="display:flex;align-items:center;gap:16px">${statusLegend()}</div>
     </div>
     ${S.error?`<div class="err">⚠️ ${S.error}</div>`:""}
-    ${liHasData?`<div class="tf-wrap" style="margin-bottom:14px">
-      <span class="tf-lbl">Tráfego:</span>
-      <button class="tf-btn${f==="all"?" active":""}" onclick="setTrafficFilter('all')">Consolidado</button>
-      <button class="tf-btn${f==="meta"?" active":""}" onclick="setTrafficFilter('meta')">Meta</button>
-      <button class="tf-btn${f==="linkedin"?" active":""}" onclick="setTrafficFilter('linkedin')">LinkedIn</button>
-    </div>`:""}
     <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:13px;margin-bottom:16px">
       ${kpiCard("Investimento",fBRL(tot.spend),"","var(--text-strong)")}
       ${kpiCard("Aplicações (Leads)",tot.trafficLeads.toLocaleString("pt-BR"),"","var(--text-strong)")}
@@ -1614,8 +1556,6 @@ function renderResumo(){
   function periodMetrics(s,e){
     const daily=getDailyT(s,e);
     const t=getTotalsT(daily);
-    // Soma LinkedIn ao investimento (sem filtro — resumo sempre mostra consolidado)
-    for(const[d,li] of Object.entries(S.linkedinMeta)){if(d>=s&&d<=e)t.spend+=li.spend;}
     let tLeads=0,mqlCount=0;
     for(const[d,l] of Object.entries(S.leadsD)){if(d>=s&&d<=e)tLeads+=l.traffic;}
     for(const[d,n] of Object.entries(S.mqlD)){if(d>=s&&d<=e)mqlCount+=n;}
