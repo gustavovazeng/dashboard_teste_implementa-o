@@ -222,6 +222,10 @@ const CHART_CPL   = "#fbbf24";
 const CHART_LEADS = "#34d399";
 const CHART_MQL   = "#a78bfa";
 
+// Rótulo usado para agrupar leads sem UTM_CAMPAIGN/UTM_CONTENT válido
+// (vazio ou variável do Meta não resolvida, ex.: {{campaign.name}}, {{ad.name}})
+const SEM_UTM="Tráfego sem UTM";
+
 // ── State ─────────────────────────────────────────────────────────────────
 const S = {
   meta:{},
@@ -511,11 +515,16 @@ async function loadData(force=false){
         if(disp)dispCount[disp]=(dispCount[disp]||0)+1;
 
         // Attribution — UTMs brutos (não há colunas pré-processadas nessa planilha)
-        const campName=(r["UTM_CAMPAIGN"]||"").trim();
-        const rawAd=(r["UTM_CONTENT"]||"").trim();
+        // Valores vazios ou variáveis do Meta não resolvidas (ex.: {{campaign.name}}, {{ad.name}})
+        // são agrupados como "Tráfego sem UTM" em vez de ficarem invisíveis nas tabelas.
+        const campRaw=(r["UTM_CAMPAIGN"]||"").trim();
+        const campName=(!campRaw||campRaw.startsWith("{{"))?SEM_UTM:campRaw;
+        const rawAdRaw=(r["UTM_CONTENT"]||"").trim();
+        const rawAd=(!rawAdRaw||rawAdRaw.startsWith("{{"))?"":rawAdRaw;
         const adIdFromContent=extractIdFromUtm(rawAd);
-        // advCode: 1) UTM_CONTENT normalizado (remove prefixo "NN_"); 2) mapa adId→advCode do Meta
-        const advCode=extractAdvCode(rawAd)||(adIdFromContent&&S.adIdToAdvCode[adIdFromContent])||null;
+        // advCode: 1) UTM_CONTENT normalizado (remove prefixo "NN_"); 2) mapa adId→advCode do Meta; 3) Tráfego sem UTM
+        const advCodeExtracted=extractAdvCode(rawAd)||(adIdFromContent&&S.adIdToAdvCode[adIdFromContent])||null;
+        const advCode=(!rawAdRaw||rawAdRaw.startsWith("{{"))?SEM_UTM:advCodeExtracted;
         const campNameAtual=adIdFromContent?(S.adIdToCampName[adIdFromContent]||campName):campName;
         const temp=extractTemp(campNameAtual);
         if(temp){
@@ -1357,6 +1366,14 @@ function renderAnuncios(){
       cpm:cImpr>0?(cSpend/cImpr)*1000:0, cpl:cLeads>0?cSpend/cLeads:0,
       cpmql:cMql>0?cSpend/cMql:0});
   }
+  // Linha "Tráfego sem UTM" — leads sem UTM_CAMPAIGN válido (vazio ou variável do Meta não resolvida).
+  // Não tem investimento atribuível (não existe no Meta), mas entra na tabela para não sumir dos totais.
+  const semUtmCampLeads=sumPeriod(S.leadsByCamp,SEM_UTM);
+  if(semUtmCampLeads>0){
+    campRows.push({campName:SEM_UTM,spend:0,clicks:0,impressions:0,
+      leads:semUtmCampLeads,mql:sumPeriod(S.mqlByCamp,SEM_UTM),
+      cpc:0,ctr:0,cpm:0,cpl:0,cpmql:0});
+  }
   const {col:cCol,dir:cDir}=S.cSort;
   const sortedCampsAll=[...campRows].sort((a,b)=>{
     const av=a[cCol]??0, bv=b[cCol]??0;
@@ -1382,6 +1399,14 @@ function renderAnuncios(){
       cpc:clicks>0?spend/clicks:0, ctr:impressions>0?(clicks/impressions)*100:0,
       cpm:impressions>0?(spend/impressions)*1000:0,
       cpl:leads>0?spend/leads:0, cpmql:mql>0?spend/mql:0});
+  }
+  // Linha "Tráfego sem UTM" — leads sem UTM_CONTENT válido. Só aparece se nenhum filtro
+  // de campanha estiver ativo, ou se "Tráfego sem UTM" for a campanha selecionada.
+  const semUtmAdLeads=sumPeriod(S.leadsByAd,SEM_UTM);
+  if(semUtmAdLeads>0&&(!hasCampSel||S.selectedCamps.has(SEM_UTM))){
+    adRows.push({advCode:SEM_UTM,adName:SEM_UTM,spend:0,clicks:0,impressions:0,
+      leads:semUtmAdLeads,mql:sumPeriod(S.mqlByAd,SEM_UTM),igUrl:"",
+      cpc:0,ctr:0,cpm:0,cpl:0,cpmql:0});
   }
 
   const tot=campRows.reduce((a,c)=>({spend:a.spend+c.spend,clicks:a.clicks+c.clicks,impressions:a.impressions+c.impressions,leads:a.leads+c.leads,mql:a.mql+c.mql}),{spend:0,clicks:0,impressions:0,leads:0,mql:0});
