@@ -204,15 +204,16 @@ const GS_URL = (sheet) => `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gv
 
 
 // ── Metas D2D ─────────────────────────────────────────────────────────────
-const META_CPL = 150;
+const META_CPL = 130;
+const META_CPMQL = 230;
 
 const METAS_T = {
-  cpl:      {val:150,  higher:false},
-  cpc:      {val:5.30, higher:false},
-  ctr:      {val:0.75, higher:true},
-  cpm:      {val:60,   higher:false},
-  connect:  {val:70,   higher:true},
-  txConvPg: {val:7,    higher:true},
+  cpl:      {val:130,   higher:false},
+  cpc:      {val:11.33, higher:false},
+  ctr:      {val:0.75,  higher:true},
+  cpm:      {val:85,    higher:false},
+  connect:  {val:85,    higher:true},
+  txConvPg: {val:10,    higher:true},
 };
 
 // Chart colors
@@ -239,6 +240,8 @@ const S = {
   leadsFat:{},
   leadsDesafio:{},
   leadsDisp:{},
+  leadsArea:{},
+  mqlDOrganic:{},leadsFatOrganic:{},leadsDesafioOrganic:{},leadsDispOrganic:{},leadsAreaOrganic:{},
   leadsByAd:{}, leadsByCamp:{},
   mqlByAd:{}, mqlByCamp:{},
   // Distribuição (Seguidores) state — pré-configurado, funil ainda inativo
@@ -255,6 +258,7 @@ const S = {
   campSearch:"",
   adSearch:"",
   tempFilter:"todas",
+  funilChannel:"pago",
   manualSpendHoje:null,
   selectedCamps:new Set(),
   selectedAds:new Set(),
@@ -485,6 +489,8 @@ async function loadData(force=false){
 
     // ── Process Leads ─────────────────────────────────────────────────────
     const lD={},mqlD={},fatCount={},desafioCount={},dispCount={},areaCount={};
+    // Contadores equivalentes para leads orgânicos (canal "Orgânico" no filtro da aba Funil)
+    const mqlDOrganic={},fatCountOrganic={},desafioCountOrganic={},dispCountOrganic={},areaCountOrganic={};
     const leadsTemp={},lByAd={},lByCamp={},mqlByAd={},mqlByCamp={};
 
     // Extrai Ad ID puro quando o UTM_CONTENT é o próprio Ad ID numérico do Meta
@@ -544,10 +550,26 @@ async function loadData(force=false){
         }
       } else if(isOrganicLead(r)){
         lD[d].organic++;
+        const mqlO=isMQL(r);
+        if(mqlO)mqlDOrganic[d]=(mqlDOrganic[d]||0)+1;
+
+        const areaO=(r["Qual sua área de atuação?"]||"").trim();
+        if(areaO)areaCountOrganic[areaO]=(areaCountOrganic[areaO]||0)+1;
+
+        const fatO=(r["Qual é o faturamento médio mensal do seu consultório?"]||"").trim();
+        if(fatO)fatCountOrganic[fatO]=(fatCountOrganic[fatO]||0)+1;
+
+        const desafioO=(r["O que mais está te incomodando hoje que te fez buscar essa consultoria?"]||"").trim();
+        if(desafioO)desafioCountOrganic[desafioO]=(desafioCountOrganic[desafioO]||0)+1;
+
+        const dispO=(r["IMPORTANTE: AVISO"]||"").trim();
+        if(dispO)dispCountOrganic[dispO]=(dispCountOrganic[dispO]||0)+1;
       }
     }
     S.leadsD=lD;S.mqlD=mqlD;S.leadsFat=fatCount;
     S.leadsDesafio=desafioCount;S.leadsDisp=dispCount;S.leadsArea=areaCount;
+    S.mqlDOrganic=mqlDOrganic;S.leadsFatOrganic=fatCountOrganic;
+    S.leadsDesafioOrganic=desafioCountOrganic;S.leadsDispOrganic=dispCountOrganic;S.leadsAreaOrganic=areaCountOrganic;
     S.leadsTemp=leadsTemp;S.leadsByAd=lByAd;S.leadsByCamp=lByCamp;
     S.mqlByAd=mqlByAd;S.mqlByCamp=mqlByCamp;
 
@@ -769,7 +791,8 @@ function sortAnuncios(col){
 }
 function setCampSearch(v){S.campSearch=v;_isSeg()?renderAnunciosSeg():renderAnuncios();}
 function setAdSearch(v){S.adSearch=v;_isSeg()?renderAnunciosSeg():renderAnuncios();}
-function setTempFilter(t){S.tempFilter=t;renderPrincipal();}
+function setTempFilter(t){S.tempFilter=t;render();}
+function setFunilChannel(c){S.funilChannel=c;render();}
 function setManualSpendHoje(v){
   const cleaned=v.replace(/[Rr$\s]/g,"").replace(/\./g,"").replace(",",".");
   const n=parseFloat(cleaned);
@@ -1067,6 +1090,7 @@ function renderPrincipal(){
   const daily=getDaily(S.startDate,S.endDate,tf);
   const tot=getTotals(daily);
   const cplC=statusColor(tot.cpl,META_CPL,false);
+  const cpmqlC=tot.mql>0?statusColor(tot.cpmql,META_CPMQL,false):"var(--text-strong)";
   el.innerHTML=`
     <div class="hdr" style="margin-bottom:6px">
       <div>
@@ -1082,14 +1106,14 @@ function renderPrincipal(){
     </div>
     <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:13px;margin-bottom:16px">
       ${kpiCard("Investimento",fBRL(tot.spend),"","var(--text-strong)")}
-      ${kpiCard("Aplicações (Leads)",tot.trafficLeads.toLocaleString("pt-BR"),"","var(--text-strong)")}
-      ${kpiCard("Custo por Aplicação",fBRL(tot.cpl),`meta ${fBRL(META_CPL)}`,cplC,false,tot.cpl,META_CPL,false)}
+      ${kpiCard("Leads",tot.trafficLeads.toLocaleString("pt-BR"),"","var(--text-strong)")}
+      ${kpiCard("Custo por Lead",fBRL(tot.cpl),`meta ${fBRL(META_CPL)}`,cplC,false,tot.cpl,META_CPL,false)}
       ${kpiCard("MQL",tot.mql.toLocaleString("pt-BR"),`taxa: ${fPct(tot.taxaMql)}`,"#a78bfa")}
-      ${kpiCard("Custo por MQL",tot.mql>0?fBRL(tot.cpmql):"—","","var(--text-strong)")}
+      ${kpiCard("Custo por MQL",tot.mql>0?fBRL(tot.cpmql):"—",tot.mql>0?`meta ${fBRL(META_CPMQL)}`:"",cpmqlC,false,tot.cpmql,META_CPMQL,false)}
     </div>
     <div class="cc" style="margin-bottom:12px;position:relative">
       <div class="ch">
-        <span class="ct">Investimento × Custo por Aplicação</span>
+        <span class="ct">Investimento × Custo por Lead</span>
         <div class="lg">
           <span class="li"><span class="ll" style="background:${CHART_INV}"></span>Invest. (esq.)</span>
           <span class="li"><span class="ll" style="background:${CHART_CPL}"></span>CPL (dir.)</span>
@@ -1100,8 +1124,8 @@ function renderPrincipal(){
     </div>
     <div class="cc" style="margin-bottom:12px;position:relative">
       <div class="ch">
-        <span class="ct">Volume de Aplicações (Leads)</span>
-        <div class="lg"><span class="li"><span class="ld" style="background:${CHART_LEADS}"></span>Aplicações/dia</span></div>
+        <span class="ct">Volume de Leads</span>
+        <div class="lg"><span class="li"><span class="ld" style="background:${CHART_LEADS}"></span>Leads/dia</span></div>
       </div>
       <div style="position:relative"><canvas id="c-leads"></canvas><div class="tip" id="t-leads"></div></div>
     </div>
@@ -1111,6 +1135,7 @@ function renderPrincipal(){
         <div class="lg">
           <span class="li"><span class="ll" style="background:${CHART_INV}"></span>Invest. (esq.)</span>
           <span class="li"><span class="ll" style="background:${CHART_MQL}"></span>CP MQL (dir.)</span>
+          <span class="li"><span class="ll" style="background:${CHART_MQL};opacity:.4;border-top:1px dashed ${CHART_MQL}"></span>Meta R$${META_CPMQL}</span>
         </div>
       </div>
       <div style="position:relative"><canvas id="c-dual-mql"></canvas><div class="tip" id="t-dual-mql"></div></div>
@@ -1126,14 +1151,14 @@ function renderPrincipal(){
     const mW=document.getElementById("c-dual")?.parentElement?.offsetWidth||720;
     drawDualPrincipal("c-dual",daily,"cpl",CHART_CPL,META_CPL,mW,230);
     drawBarPrincipal("c-leads",daily,"trafficLeads",CHART_LEADS,mW,180);
-    drawDualPrincipal("c-dual-mql",daily,"cpmql",CHART_MQL,null,mW,230);
+    drawDualPrincipal("c-dual-mql",daily,"cpmql",CHART_MQL,META_CPMQL,mW,230);
     drawBarPrincipal("c-mql",daily,"mql",CHART_MQL,mW,180);
     setupTip("c-dual","t-dual",daily,[
       {key:"spend",color:CHART_INV,name:"Investimento"},
-      {key:"cpl",color:CHART_CPL,name:"Custo por Aplic."},
+      {key:"cpl",color:CHART_CPL,name:"Custo por Lead"},
     ]);
     setupTip("c-leads","t-leads",daily,[
-      {key:"trafficLeads",color:CHART_LEADS,name:"Aplicações",fmt:v=>Math.round(v).toString()},
+      {key:"trafficLeads",color:CHART_LEADS,name:"Leads",fmt:v=>Math.round(v).toString()},
     ],40,12);
     setupTip("c-dual-mql","t-dual-mql",daily,[
       {key:"spend",color:CHART_INV,name:"Investimento"},
@@ -1146,16 +1171,39 @@ function renderPrincipal(){
 }
 
 // ── Render Funil ──────────────────────────────────────────────────────────
+const CHANNEL_OPTS=[{k:"total",lbl:"Total"},{k:"organico",lbl:"Orgânico"},{k:"pago",lbl:"Pago"}];
+function mergeCounts(a,b){
+  const r={...a};
+  for(const k in b)r[k]=(r[k]||0)+b[k];
+  return r;
+}
 function renderFunil(){
   const el=document.getElementById("page-funil");if(!el)return;
-  const allDates=Object.keys(S.meta).sort().filter(d=>(!S.startDate||d>=S.startDate)&&(!S.endDate||d<=S.endDate));
+  const ch=S.funilChannel||"pago";
+  const inRange=d=>(!S.startDate||d>=S.startDate)&&(!S.endDate||d<=S.endDate);
+
+  // Investimento é sempre um custo de mídia paga — não existe para o canal Orgânico
   let totalSpend=0;
-  for(const d of allDates)totalSpend+=(S.meta[d]?.spend||0);
-  let trafficLeads=0;
-  const allLeadDates=Object.keys(S.leadsD).sort().filter(d=>(!S.startDate||d>=S.startDate)&&(!S.endDate||d<=S.endDate));
-  for(const d of allLeadDates)trafficLeads+=(S.leadsD[d]?.traffic||0);
-  let mqlTotal=0;
-  for(const[d,n] of Object.entries(S.mqlD)){if((!S.startDate||d>=S.startDate)&&(!S.endDate||d<=S.endDate))mqlTotal+=n;}
+  if(ch!=="organico"){
+    for(const d of Object.keys(S.meta).sort().filter(inRange))totalSpend+=(S.meta[d]?.spend||0);
+  }
+
+  // Leads e MQL: soma tráfego (pago) e/ou orgânico conforme o canal selecionado
+  let leadsTotal=0,mqlTotal=0;
+  if(ch!=="organico"){
+    for(const d of Object.keys(S.leadsD).sort().filter(inRange))leadsTotal+=(S.leadsD[d]?.traffic||0);
+    for(const[d,n] of Object.entries(S.mqlD)){if(inRange(d))mqlTotal+=n;}
+  }
+  if(ch!=="pago"){
+    for(const d of Object.keys(S.leadsD).sort().filter(inRange))leadsTotal+=(S.leadsD[d]?.organic||0);
+    for(const[d,n] of Object.entries(S.mqlDOrganic)){if(inRange(d))mqlTotal+=n;}
+  }
+
+  // Breakdowns (área, faturamento, desafio, disponibilidade) do canal selecionado
+  const dataArea    =ch==="total"?mergeCounts(S.leadsArea,S.leadsAreaOrganic)      :ch==="organico"?S.leadsAreaOrganic    :S.leadsArea;
+  const dataFat      =ch==="total"?mergeCounts(S.leadsFat,S.leadsFatOrganic)       :ch==="organico"?S.leadsFatOrganic     :S.leadsFat;
+  const dataDesafio  =ch==="total"?mergeCounts(S.leadsDesafio,S.leadsDesafioOrganic):ch==="organico"?S.leadsDesafioOrganic:S.leadsDesafio;
+  const dataDisp     =ch==="total"?mergeCounts(S.leadsDisp,S.leadsDispOrganic)     :ch==="organico"?S.leadsDispOrganic    :S.leadsDisp;
 
   // Faturamento médio mensal — ordem canônica (maior para menor)
   const FAT_ORDER=[
@@ -1197,22 +1245,26 @@ function renderFunil(){
     <div class="hdr" style="margin-bottom:6px">
       <div>
         <div class="hdr-title">Métricas do Funil</div>
-        <div class="hdr-sub">período: ${fDateBR(S.startDate)} a ${fDateBR(S.endDate)} · atualizado em: ${S.updated||"—"}</div>
+        <div class="hdr-sub">período: ${fDateBR(S.startDate)} a ${fDateBR(S.endDate)} · atualizado em: ${S.updated||"—"} · canal: ${CHANNEL_OPTS.find(o=>o.k===ch).lbl}</div>
       </div>
     </div>
     ${S.error?`<div class="err">⚠️ ${S.error}</div>`:""}
+    <div class="tf-wrap" style="margin-bottom:14px">
+      <span class="tf-lbl">Canal:</span>
+      ${CHANNEL_OPTS.map(o=>`<button class="tf-btn${ch===o.k?" active":""}" onclick="setFunilChannel('${o.k}')">${o.lbl}</button>`).join("")}
+    </div>
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:13px;margin-bottom:20px">
-      ${kpiCard("Investimento",fBRL(totalSpend),"Meta Ads","var(--text-strong)")}
-      ${kpiCard("Aplicações (Leads)",trafficLeads.toLocaleString("pt-BR"),"tráfego","var(--text-strong)")}
-      ${kpiCard("MQL",mqlTotal.toLocaleString("pt-BR"),`taxa: ${trafficLeads>0?fPct((mqlTotal/trafficLeads)*100):"—"}`,"#a78bfa")}
+      ${kpiCard("Investimento",fBRL(totalSpend),ch==="organico"?"orgânico não tem custo de mídia":"Meta Ads","var(--text-strong)")}
+      ${kpiCard("Leads",leadsTotal.toLocaleString("pt-BR"),ch,"var(--text-strong)")}
+      ${kpiCard("MQL",mqlTotal.toLocaleString("pt-BR"),`taxa: ${leadsTotal>0?fPct((mqlTotal/leadsTotal)*100):"—"}`,"#a78bfa")}
     </div>
     <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:14px">
-      ${breakdown(S.leadsArea,null,"Área de atuação")}
-      ${breakdown(S.leadsFat,FAT_ORDER,"Faturamento médio mensal")}
-      ${breakdown(S.leadsDesafio,null,"Principal desafio")}
+      ${breakdown(dataArea,null,"Área de atuação")}
+      ${breakdown(dataFat,FAT_ORDER,"Faturamento médio mensal")}
+      ${breakdown(dataDesafio,null,"Principal desafio")}
       ${(()=>{
         const DISP_VALID=["Sim, estou comprometido(a) e vou honrar meu horário.","Prefiro não seguir agora, pode passar minha vaga para outra pessoa."];
-        const dispFiltered=Object.fromEntries(DISP_VALID.filter(k=>S.leadsDisp[k]).map(k=>[k,S.leadsDisp[k]]));
+        const dispFiltered=Object.fromEntries(DISP_VALID.filter(k=>dataDisp[k]).map(k=>[k,dataDisp[k]]));
         return breakdown(dispFiltered,DISP_VALID,"Confirmação de horário");
       })()}
     </div>`;
@@ -1231,7 +1283,7 @@ function renderTrafego(){
 
   const METRICS=[
     {key:"spend",    lbl:"Investimento",       fmt:fBRL,  meta:null,              higher:null},
-    {key:"cpl",      lbl:"Custo por Aplic.",   fmt:fBRL,  meta:METAS_T.cpl.val,  higher:false},
+    {key:"cpl",      lbl:"Custo por Lead",     fmt:fBRL,  meta:METAS_T.cpl.val,  higher:false},
     {key:"cpc",      lbl:"CPC",                fmt:fBRL,  meta:METAS_T.cpc.val,  higher:false},
     {key:"ctr",      lbl:"CTR",                fmt:fPct,  meta:METAS_T.ctr.val,  higher:true},
     {key:"cpm",      lbl:"CPM",                fmt:fBRL,  meta:METAS_T.cpm.val,  higher:false},
@@ -1326,10 +1378,12 @@ function renderAnuncios(){
   function sumPeriod(map,key){let t=0;for(const[d,n]of Object.entries(map[key]||{})){if(d>=start&&d<=end)t+=n;}return t;}
   function fDM(iso){if(!iso)return"—";const[,m,d]=iso.split("-");return`${d}/${m}`;}
   const dateLabel=start===end?fDM(start):`${fDM(start)} a ${fDM(end)}`;
+  const tf=S.tempFilter||"todas";
 
   // Campaign rows
   const campRows=[];
   for(const[campName,byDate] of Object.entries(S.metaByCampByDate)){
+    if(tf!=="todas"&&extractTemp(campName)!==tf)continue;
     let cSpend=0,cClicks=0,cImpr=0;
     for(const[d,vals] of Object.entries(byDate)){if(d>=start&&d<=end){cSpend+=vals.spend;cClicks+=vals.clicks;cImpr+=vals.impressions;}}
     if(cSpend===0)continue;
@@ -1343,7 +1397,7 @@ function renderAnuncios(){
   // Linha "Tráfego sem UTM" — leads sem UTM_CAMPAIGN válido (vazio ou variável do Meta não resolvida).
   // Não tem investimento atribuível (não existe no Meta), mas entra na tabela para não sumir dos totais.
   const semUtmCampLeads=sumPeriod(S.leadsByCamp,SEM_UTM);
-  if(semUtmCampLeads>0){
+  if(semUtmCampLeads>0&&(tf==="todas"||extractTemp(SEM_UTM)===tf)){
     campRows.push({campName:SEM_UTM,spend:0,clicks:0,impressions:0,
       leads:semUtmCampLeads,mql:sumPeriod(S.mqlByCamp,SEM_UTM),
       cpc:0,ctr:0,cpm:0,cpl:0,cpmql:0});
@@ -1362,6 +1416,7 @@ function renderAnuncios(){
   const adRows=[];
   for(const[advCode,meta] of Object.entries(S.metaByAd)){
     if(hasCampSel){const adCamps=meta.camps||new Set();if(![...S.selectedCamps].some(c=>adCamps.has(c)))continue;}
+    if(tf!=="todas"){const adCamps=meta.camps||new Set();if(![...adCamps].some(c=>extractTemp(c)===tf))continue;}
     const byDate=S.metaByAdByDate[advCode]||{};
     let spend=0,clicks=0,impressions=0,igUrl="";
     for(const[d,vals] of Object.entries(byDate)){if(d>=start&&d<=end){spend+=vals.spend;clicks+=vals.clicks;impressions+=vals.impressions;if(!igUrl&&vals.igUrl)igUrl=vals.igUrl;}}
@@ -1377,7 +1432,7 @@ function renderAnuncios(){
   // Linha "Tráfego sem UTM" — leads sem UTM_CONTENT válido. Só aparece se nenhum filtro
   // de campanha estiver ativo, ou se "Tráfego sem UTM" for a campanha selecionada.
   const semUtmAdLeads=sumPeriod(S.leadsByAd,SEM_UTM);
-  if(semUtmAdLeads>0&&(!hasCampSel||S.selectedCamps.has(SEM_UTM))){
+  if(semUtmAdLeads>0&&(!hasCampSel||S.selectedCamps.has(SEM_UTM))&&(tf==="todas"||extractTemp(SEM_UTM)===tf)){
     adRows.push({advCode:SEM_UTM,adName:SEM_UTM,spend:0,clicks:0,impressions:0,
       leads:semUtmAdLeads,mql:sumPeriod(S.mqlByAd,SEM_UTM),igUrl:"",
       cpc:0,ctr:0,cpm:0,cpl:0,cpmql:0});
@@ -1454,18 +1509,22 @@ function renderAnuncios(){
     <div class="hdr" style="margin-bottom:6px">
       <div>
         <div class="hdr-title">Campanhas / Anúncios</div>
-        <div class="hdr-sub">atualizado em: ${S.updated||"—"} · ${sortedCamps.length} campanhas · ${sorted.length} anúncios${S.selectedAds.size>0?" · "+S.selectedAds.size+" selecionado"+(S.selectedAds.size>1?"s":""):""}</div>
+        <div class="hdr-sub">atualizado em: ${S.updated||"—"} · ${sortedCamps.length} campanhas · ${sorted.length} anúncios${S.selectedAds.size>0?" · "+S.selectedAds.size+" selecionado"+(S.selectedAds.size>1?"s":""):""}${tf!=="todas"?` · temperatura: ${TEMP_OPTS.find(o=>o.k===tf).lbl}`:""}</div>
       </div>
       <div>${statusLegend()}</div>
     </div>
     ${S.error?`<div class="err">⚠️ ${S.error}</div>`:""}
+    <div class="tf-wrap" style="margin-bottom:14px">
+      <span class="tf-lbl">Temperatura:</span>
+      ${TEMP_OPTS.map(o=>`<button class="tf-btn${tf===o.k?" active":""}" onclick="setTempFilter('${o.k}')">${o.lbl}</button>`).join("")}
+    </div>
 
     <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:13px;margin-bottom:20px">
       ${kpiCard("Investimento",fBRL(tot.spend),"","var(--text-strong)")}
       ${kpiCard("Leads",tot.leads.toLocaleString("pt-BR"),"tráfego","var(--text-strong)")}
       ${kpiCard("Custo por Lead",totCpl>0?fBRL(totCpl):"—",`meta ${fBRL(META_CPL)}`,totCpl>0?sc(totCpl,META_CPL,false):"var(--text-strong)",false,totCpl,META_CPL,false)}
       ${kpiCard("MQL",tot.mql.toLocaleString("pt-BR"),"","#a78bfa")}
-      ${kpiCard("Custo por MQL",totCpmql>0?fBRL(totCpmql):"—","","var(--text-strong)")}
+      ${kpiCard("Custo por MQL",totCpmql>0?fBRL(totCpmql):"—",totCpmql>0?`meta ${fBRL(META_CPMQL)}`:"",totCpmql>0?sc(totCpmql,META_CPMQL,false):"var(--text-strong)",false,totCpmql,META_CPMQL,false)}
     </div>
 
     <!-- Campanhas -->
@@ -1640,17 +1699,18 @@ function renderResumo(){
     const cpmE  =em(m.cpm,     METAS_T.cpm.val,    false);
     const cplFrioStr =m.leadsFrio>0  ?fR(m.cplFrio) :"-";
     const cplQuenteStr=m.leadsQuente>0?fR(m.cplQuente):"-";
+    const cpmqlE=m.mql>0?em(m.cpmql,META_CPMQL,false):"";
     return [
 `${icon} *${label}*`,
 ``,
 `Investimento:\t${fR(m.spend)}`,
-`Aplicações Leads:\t${m.trafficLeads}`,
-`Custo por Aplicação:\t${fR(m.cpl)}\t${cplE} Meta: R$ ${META_CPL}`,
-`Custo por Aplicação frio:\t${cplFrioStr}`,
-`Custo por Aplicação quente:\t${cplQuenteStr}`,
+`Leads:\t${m.trafficLeads}`,
+`Custo por Lead:\t${fR(m.cpl)}\t${cplE} Meta: R$ ${META_CPL}`,
+`Custo por Lead frio:\t${cplFrioStr}`,
+`Custo por Lead quente:\t${cplQuenteStr}`,
 ``,
 `MQL:\t${m.mql}`,
-`Custo por MQL:\t${m.mql>0?fR(m.cpmql):"—"}`,
+`Custo por MQL:\t${m.mql>0?fR(m.cpmql):"—"}\t${cpmqlE} Meta: R$ ${META_CPMQL}`,
 `Taxa MQL:\t${(m.taxaMql||0).toFixed(0)}%`,
 ``,
 `Tx conv formulário:\t${(m.txConvPg||0).toFixed(1)}%\t${pcE} Meta: ${METAS_T.txConvPg.val}%`,
@@ -1696,6 +1756,7 @@ ${blockText("⬇️","Hoje",hoje)}`;
     const cpmE  =em(m.cpm,     METAS_T.cpm.val,    false);
     const cplFrioStr =m.leadsFrio>0  ?fR(m.cplFrio) :"—";
     const cplQuenteStr=m.leadsQuente>0?fR(m.cplQuente):"—";
+    const cpmqlE=m.mql>0?em(m.cpmql,META_CPMQL,false):"";
     return `
     <div style="background:var(--card);border:1px solid var(--border);border-radius:14px;padding:20px;margin-bottom:14px">
       <div style="font-size:13px;font-weight:700;color:var(--text-strong);margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid var(--border)">${icon} ${label}</div>
@@ -1710,13 +1771,13 @@ ${blockText("⬇️","Hoje",hoje)}`;
           </div>`
         : row("Investimento",fR(m.spend),"","")
       }
-      ${row("Aplicações Leads",m.trafficLeads,"","")}
-      ${row("Custo por Aplicação",fR(m.cpl),`meta R$ ${META_CPL}`,cplE)}
+      ${row("Leads",m.trafficLeads,"","")}
+      ${row("Custo por Lead",fR(m.cpl),`meta R$ ${META_CPL}`,cplE)}
       ${row("↳ frio",cplFrioStr,"","")}
       ${row("↳ quente",cplQuenteStr,"","")}
       ${divider()}
       ${row("MQL","<span style='color:#a78bfa'>"+m.mql+"</span>","","")}
-      ${row("Custo por MQL",m.mql>0?fR(m.cpmql):"—","","")}
+      ${row("Custo por MQL",m.mql>0?fR(m.cpmql):"—",m.mql>0?`meta R$ ${META_CPMQL}`:"",cpmqlE)}
       ${row("Taxa MQL",(m.taxaMql||0).toFixed(0)+"%","","")}
       ${divider()}
       ${row("Tx conv formulário",(m.txConvPg||0).toFixed(1)+"%",`meta ${METAS_T.txConvPg.val}%`,pcE)}
