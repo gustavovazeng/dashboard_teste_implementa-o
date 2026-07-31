@@ -323,14 +323,14 @@ function extractAdvCode(name){
 
 // ── D2D-specific lead helpers ─────────────────────────────────────────────
 function isTrafficLead(row){
-  // Tráfego = UTM_SOURCE vazio OU "facebook" (Meta Ads). Demais origens
-  // (ig, whatsapp, youtube-live, ActiveCampaign etc.) são orgânicas/outras.
+  // Tráfego = UTM_SOURCE = "facebook" (Meta Ads). UTM vazia OU qualquer outra
+  // origem (ig, whatsapp, youtube-live, ActiveCampaign etc.) é orgânico/outros.
   const src=(row["UTM_SOURCE"]||"").trim().toLowerCase();
-  return src===""||src==="facebook";
+  return src==="facebook";
 }
 function isOrganicLead(row){
   const src=(row["UTM_SOURCE"]||"").trim().toLowerCase();
-  return src!==""&&src!=="facebook";
+  return src!=="facebook";
 }
 // Áreas de atuação que qualificam como MQL e o faturamento médio mensal
 // mínimo exigido (null = qualquer faturamento qualifica)
