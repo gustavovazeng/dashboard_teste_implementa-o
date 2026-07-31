@@ -1748,8 +1748,6 @@ function renderResumo(){
     const cpcE  =em(m.cpc,     METAS_T.cpc.val,    false);
     const ctrE  =em(m.ctr,     METAS_T.ctr.val,    true);
     const cpmE  =em(m.cpm,     METAS_T.cpm.val,    false);
-    const cplFrioStr =m.leadsFrio>0  ?fR(m.cplFrio) :"-";
-    const cplQuenteStr=m.leadsQuente>0?fR(m.cplQuente):"-";
     const cpmqlE=m.mql>0?em(m.cpmql,META_CPMQL,false):"";
     return [
 `${icon} *${label}*`,
@@ -1757,23 +1755,17 @@ function renderResumo(){
 `Investimento:\t${fR(m.spend)}`,
 `Leads:\t${m.trafficLeads}`,
 `Custo por Lead:\t${fR(m.cpl)}\t${cplE} Meta: R$ ${META_CPL}`,
-`Custo por Lead frio:\t${cplFrioStr}`,
-`Custo por Lead quente:\t${cplQuenteStr}`,
 ``,
 `MQL:\t${m.mql}`,
 `Custo por MQL:\t${m.mql>0?fR(m.cpmql):"—"}\t${cpmqlE} Meta: R$ ${META_CPMQL}`,
 `Taxa MQL:\t${(m.taxaMql||0).toFixed(0)}%`,
 ``,
-`Tx conv formulário:\t${(m.txConvPg||0).toFixed(1)}%\t${pcE} Meta: ${METAS_T.txConvPg.val}%`,
-`Connect Rate:\t${(m.connect||0).toFixed(1)}%\t${cnE} Meta: ${METAS_T.connect.val}%`,
-``,
-`Impressões\t${fN(m.impressions)}`,
-`Views 75%\t${fN(m.video75)}`,
-`Visualizações de página\t${fN(m.landingViews)}`,
-``,
 `CPC:\t${fR(m.cpc)}\t${cpcE} Meta: R$ ${METAS_T.cpc.val}`,
 `CTR:\t${(m.ctr||0).toFixed(2)}%\t${ctrE} Meta: ${METAS_T.ctr.val}%`,
 `CPM:\t${fR(m.cpm,0)}\t${cpmE} Meta: R$ ${METAS_T.cpm.val}`,
+``,
+`Tx conv formulário:\t${(m.txConvPg||0).toFixed(1)}%\t${pcE} Meta: ${METAS_T.txConvPg.val}%`,
+`Connect Rate:\t${(m.connect||0).toFixed(1)}%\t${cnE} Meta: ${METAS_T.connect.val}%`,
     ].join("\n");
   }
 
@@ -1805,8 +1797,6 @@ ${blockText("⬇️","Hoje",hoje)}`;
     const cpcE  =em(m.cpc,     METAS_T.cpc.val,    false);
     const ctrE  =em(m.ctr,     METAS_T.ctr.val,    true);
     const cpmE  =em(m.cpm,     METAS_T.cpm.val,    false);
-    const cplFrioStr =m.leadsFrio>0  ?fR(m.cplFrio) :"—";
-    const cplQuenteStr=m.leadsQuente>0?fR(m.cplQuente):"—";
     const cpmqlE=m.mql>0?em(m.cpmql,META_CPMQL,false):"";
     return `
     <div style="background:var(--card);border:1px solid var(--border);border-radius:14px;padding:20px;margin-bottom:14px">
@@ -1824,23 +1814,17 @@ ${blockText("⬇️","Hoje",hoje)}`;
       }
       ${row("Leads",m.trafficLeads,"","")}
       ${row("Custo por Lead",fR(m.cpl),`meta R$ ${META_CPL}`,cplE)}
-      ${row("↳ frio",cplFrioStr,"","")}
-      ${row("↳ quente",cplQuenteStr,"","")}
       ${divider()}
       ${row("MQL","<span style='color:#a78bfa'>"+m.mql+"</span>","","")}
       ${row("Custo por MQL",m.mql>0?fR(m.cpmql):"—",m.mql>0?`meta R$ ${META_CPMQL}`:"",cpmqlE)}
       ${row("Taxa MQL",(m.taxaMql||0).toFixed(0)+"%","","")}
       ${divider()}
-      ${row("Tx conv formulário",(m.txConvPg||0).toFixed(1)+"%",`meta ${METAS_T.txConvPg.val}%`,pcE)}
-      ${row("Connect Rate",(m.connect||0).toFixed(1)+"%",`meta ${METAS_T.connect.val}%`,cnE)}
-      ${divider()}
-      ${row("Impressões",(m.impressions||0).toLocaleString("pt-BR"),"","")}
-      ${row("Views 75%",(m.video75||0).toLocaleString("pt-BR"),"","")}
-      ${row("Visualizações de página",(m.landingViews||0).toLocaleString("pt-BR"),"","")}
-      ${divider()}
       ${row("CPC",fR(m.cpc),`meta R$ ${METAS_T.cpc.val}`,cpcE)}
       ${row("CTR",(m.ctr||0).toFixed(2)+"%",`meta ${METAS_T.ctr.val}%`,ctrE)}
       ${row("CPM",fR(m.cpm,0),`meta R$ ${METAS_T.cpm.val}`,cpmE)}
+      ${divider()}
+      ${row("Tx conv formulário",(m.txConvPg||0).toFixed(1)+"%",`meta ${METAS_T.txConvPg.val}%`,pcE)}
+      ${row("Connect Rate",(m.connect||0).toFixed(1)+"%",`meta ${METAS_T.connect.val}%`,cnE)}
     </div>`;
   }
 
