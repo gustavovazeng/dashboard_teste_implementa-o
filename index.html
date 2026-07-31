@@ -222,6 +222,7 @@ const CHART_INV   = "#3b82f6";
 const CHART_CPL   = "#fbbf24";
 const CHART_LEADS = "#34d399";
 const CHART_MQL   = "#a78bfa";
+const CHART_GAP   = "#f87171";
 
 // Rótulo usado para agrupar leads sem UTM_CAMPAIGN/UTM_CONTENT válido
 // (vazio ou variável do Meta não resolvida, ex.: {{campaign.name}}, {{ad.name}})
@@ -259,6 +260,7 @@ const S = {
   adSearch:"",
   tempFilter:"todas",
   funilChannel:"pago",
+  showGapOverlay:false,
   manualSpendHoje:null,
   selectedCamps:new Set(),
   selectedAds:new Set(),
@@ -454,9 +456,10 @@ async function loadData(force=false){
 
       if(temp){
         if(!metaTemp[temp])metaTemp[temp]={};
-        if(!metaTemp[temp][d])metaTemp[temp][d]={spend:0,clicks:0,impressions:0,landingViews:0};
+        if(!metaTemp[temp][d])metaTemp[temp][d]={spend:0,clicks:0,impressions:0,landingViews:0,metaLeads:0};
         metaTemp[temp][d].spend+=sp;metaTemp[temp][d].clicks+=cl;
         metaTemp[temp][d].impressions+=im;metaTemp[temp][d].landingViews+=lv;
+        metaTemp[temp][d].metaLeads+=ml;
       }
       if(advCode){
         if(!mByAd[advCode])mByAd[advCode]={advCode,adName,adIds:new Set(),spend:0,clicks:0,impressions:0,metaLeads:0,landingViews:0,igUrl:"",camps:new Set()};
@@ -653,13 +656,14 @@ function getDaily(start,end,temp){
     const mT=S.metaTemp[temp]||{}, lT=S.leadsTemp[temp]||{};
     const allDates=new Set([...Object.keys(mT),...Object.keys(lT)]);
     return Array.from(allDates).sort().filter(d=>d>=start&&d<=end).map(date=>{
-      const m=mT[date]||{spend:0};
+      const m=mT[date]||{spend:0,metaLeads:0};
       const l=lT[date]||{traffic:0,mql:0};
-      const spend=m.spend||0,trafficLeads=l.traffic||0,mql=l.mql||0;
+      const spend=m.spend||0,trafficLeads=l.traffic||0,mql=l.mql||0,metaLeads=m.metaLeads||0;
       return{date,label:fDate(date),spend,
-        trafficLeads,organicLeads:0,mql,
+        trafficLeads,organicLeads:0,mql,metaLeads,
         cpl:trafficLeads>0?spend/trafficLeads:0,
         cpmql:mql>0?spend/mql:0,
+        gap:trafficLeads>0?((metaLeads-trafficLeads)/trafficLeads)*100:0,
       };
     });
   }
@@ -669,9 +673,10 @@ function getDaily(start,end,temp){
     const l=S.leadsD[date]||{traffic:0,organic:0};
     const mql=S.mqlD[date]||0;
     return{date,label:fDate(date),spend:m.spend,
-      trafficLeads:l.traffic,organicLeads:l.organic,mql,
+      trafficLeads:l.traffic,organicLeads:l.organic,mql,metaLeads:m.metaLeads||0,
       cpl:l.traffic>0?m.spend/l.traffic:0,
       cpmql:mql>0?m.spend/mql:0,
+      gap:l.traffic>0?(((m.metaLeads||0)-l.traffic)/l.traffic)*100:0,
     };
   });
 }
@@ -793,6 +798,7 @@ function setCampSearch(v){S.campSearch=v;_isSeg()?renderAnunciosSeg():renderAnun
 function setAdSearch(v){S.adSearch=v;_isSeg()?renderAnunciosSeg():renderAnuncios();}
 function setTempFilter(t){S.tempFilter=t;render();}
 function setFunilChannel(c){S.funilChannel=c;render();}
+function toggleGapOverlay(){S.showGapOverlay=!S.showGapOverlay;render();}
 function setManualSpendHoje(v){
   const cleaned=v.replace(/[Rr$\s]/g,"").replace(/\./g,"").replace(",",".");
   const n=parseFloat(cleaned);
@@ -970,10 +976,12 @@ function drawDualPrincipal(id,data,rKey,rColor,metaVal,cssW,cssH){
   data.forEach((d,i)=>{if(i%step===0)ctx.fillText(d.label,xP(i),P.t+cH+18);});
 }
 
-// Generic bar chart
-function drawBarPrincipal(id,data,key,color,cssW,cssH){
+// Generic bar chart. overlayKey/overlayColor (opcionais): linha secundária em eixo
+// centrado em zero, sobreposta às barras (ex.: GAP % gerenciador × planilha).
+function drawBarPrincipal(id,data,key,color,cssW,cssH,overlayKey,overlayColor){
   const ctx=initCanvas(id,cssW,cssH);if(!ctx)return;
-  const P={t:14,r:12,b:28,l:40};
+  const hasOverlay=!!overlayKey;
+  const P={t:14,r:hasOverlay?46:12,b:28,l:40};
   const cW=cssW-P.l-P.r,cH=cssH-P.t-P.b;
   const vals=data.map(d=>d[key]||0);
   const maxV=Math.max(...vals,1)*1.15;
@@ -981,6 +989,12 @@ function drawBarPrincipal(id,data,key,color,cssW,cssH){
   const barW=Math.max(4,Math.min(18,(cW/n)*0.7));
   const xP=i=>P.l+(n>1?i/(n-1):0.5)*cW;
   const yP=v=>P.t+cH-(v/maxV)*cH;
+  let oVals=[],oMax=1,yPO=null;
+  if(hasOverlay){
+    oVals=data.map(d=>d[overlayKey]||0);
+    oMax=Math.max(...oVals.map(v=>Math.abs(v)),1)*1.3;
+    yPO=v=>P.t+cH/2-(v/oMax)*(cH/2);
+  }
   ctx.setLineDash([]);
   for(let i=0;i<=4;i++){
     const y=P.t+(i/4)*cH;
@@ -988,6 +1002,11 @@ function drawBarPrincipal(id,data,key,color,cssW,cssH){
     ctx.beginPath();ctx.moveTo(P.l,y);ctx.lineTo(P.l+cW,y);ctx.stroke();
     ctx.fillStyle=TICK_C;ctx.font="9px 'DM Mono',monospace";ctx.textAlign="right";
     ctx.fillText(Math.round(maxV-(i/4)*maxV),P.l-4,y+3);
+    if(hasOverlay){
+      const oVal=oMax-(i/4)*2*oMax;
+      ctx.fillStyle=overlayColor;ctx.textAlign="left";
+      ctx.fillText(Math.round(oVal)+"%",P.l+cW+4,y+3);
+    }
   }
   drawBars(ctx,xP,yP,P.t+cH,vals,color,barW);
   const step=n>60?7:n>30?3:n>14?2:1;
@@ -998,6 +1017,13 @@ function drawBarPrincipal(id,data,key,color,cssW,cssH){
       ctx.fillText(v,xP(i),yP(v)-4);
     }
   });
+  if(hasOverlay){
+    const zeroY=yPO(0);
+    ctx.strokeStyle=overlayColor+"55";ctx.lineWidth=1;ctx.setLineDash([3,3]);
+    ctx.beginPath();ctx.moveTo(P.l,zeroY);ctx.lineTo(P.l+cW,zeroY);ctx.stroke();
+    ctx.setLineDash([]);
+    drawLineArea(ctx,xP,yPO,oVals,overlayColor,false);
+  }
   ctx.fillStyle=TICK_C;ctx.font="9px 'DM Mono',monospace";
   data.forEach((d,i)=>{if(i%step===0)ctx.fillText(d.label,xP(i),P.t+cH+18);});
 }
@@ -1125,7 +1151,11 @@ function renderPrincipal(){
     <div class="cc" style="margin-bottom:12px;position:relative">
       <div class="ch">
         <span class="ct">Volume de Leads</span>
-        <div class="lg"><span class="li"><span class="ld" style="background:${CHART_LEADS}"></span>Leads/dia</span></div>
+        <div class="lg">
+          <span class="li"><span class="ld" style="background:${CHART_LEADS}"></span>Leads/dia</span>
+          ${S.showGapOverlay?`<span class="li"><span class="ll" style="background:${CHART_GAP}"></span>GAP % (gerenciador × planilha)</span>`:""}
+          <div class="overlay-btns"><button class="btn-overlay${S.showGapOverlay?" on":""}" style="${S.showGapOverlay?`border-color:${CHART_GAP};color:${CHART_GAP};background:${CHART_GAP}18`:""}" onclick="toggleGapOverlay()">+ GAP</button></div>
+        </div>
       </div>
       <div style="position:relative"><canvas id="c-leads"></canvas><div class="tip" id="t-leads"></div></div>
     </div>
@@ -1150,16 +1180,20 @@ function renderPrincipal(){
   requestAnimationFrame(()=>{
     const mW=document.getElementById("c-dual")?.parentElement?.offsetWidth||720;
     drawDualPrincipal("c-dual",daily,"cpl",CHART_CPL,META_CPL,mW,230);
-    drawBarPrincipal("c-leads",daily,"trafficLeads",CHART_LEADS,mW,180);
+    drawBarPrincipal("c-leads",daily,"trafficLeads",CHART_LEADS,mW,180,S.showGapOverlay?"gap":null,CHART_GAP);
     drawDualPrincipal("c-dual-mql",daily,"cpmql",CHART_MQL,META_CPMQL,mW,230);
     drawBarPrincipal("c-mql",daily,"mql",CHART_MQL,mW,180);
     setupTip("c-dual","t-dual",daily,[
       {key:"spend",color:CHART_INV,name:"Investimento"},
       {key:"cpl",color:CHART_CPL,name:"Custo por Lead"},
     ]);
-    setupTip("c-leads","t-leads",daily,[
+    setupTip("c-leads","t-leads",daily,S.showGapOverlay?[
       {key:"trafficLeads",color:CHART_LEADS,name:"Leads",fmt:v=>Math.round(v).toString()},
-    ],40,12);
+      {key:"metaLeads",color:CHART_GAP+"99",name:"Leads gerenciador",fmt:v=>Math.round(v).toString()},
+      {key:"gap",color:CHART_GAP,name:"GAP",fmt:v=>(v>=0?"+":"")+v.toFixed(1)+"%"},
+    ]:[
+      {key:"trafficLeads",color:CHART_LEADS,name:"Leads",fmt:v=>Math.round(v).toString()},
+    ],40,S.showGapOverlay?46:12);
     setupTip("c-dual-mql","t-dual-mql",daily,[
       {key:"spend",color:CHART_INV,name:"Investimento"},
       {key:"cpmql",color:CHART_MQL,name:"Custo por MQL"},
