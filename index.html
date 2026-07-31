@@ -239,10 +239,10 @@ const S = {
   leadsTemp:{},
   adIdToCampName:{}, adIdToAdvCode:{},
   leadsFat:{},
-  leadsDesafio:{},
+  leadsPrazo:{},
   leadsDisp:{},
   leadsArea:{},
-  mqlDOrganic:{},leadsFatOrganic:{},leadsDesafioOrganic:{},leadsDispOrganic:{},leadsAreaOrganic:{},
+  mqlDOrganic:{},leadsFatOrganic:{},leadsPrazoOrganic:{},leadsDispOrganic:{},leadsAreaOrganic:{},
   leadsByAd:{}, leadsByCamp:{},
   mqlByAd:{}, mqlByCamp:{},
   // Distribuição (Seguidores) state — pré-configurado, funil ainda inativo
@@ -360,6 +360,16 @@ const MQL_AREAS={
 };
 function normalizeArea(s){
   return (s||"").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+}
+const AREA_CANON=["Médico","Dentista","Fisioterapeuta","Biomédico","Psicólogo","Enfermeiro","Esteticista","Nutricionista","Terapeuta","Farmacêutico"];
+const AREA_CANON_NORM=Object.fromEntries(AREA_CANON.map(a=>[normalizeArea(a),a]));
+// Opções prontas do formulário — qualquer resposta que não bater com uma delas
+// (variações de texto livre, erros de digitação, outras profissões digitadas em
+// "Outro...") entra agrupada como "Outro" no breakdown da aba Funil.
+function canonArea(raw){
+  const v=(raw||"").trim();
+  if(!v)return"";
+  return AREA_CANON_NORM[normalizeArea(v)]||"Outro";
 }
 // Extrai o piso numérico (R$) da faixa de faturamento médio mensal
 function fatMensalMin(fat){
@@ -491,9 +501,9 @@ async function loadData(force=false){
     S.adIdToCampName=adIdToCampName;S.adIdToAdvCode=adIdToAdvCode;
 
     // ── Process Leads ─────────────────────────────────────────────────────
-    const lD={},mqlD={},fatCount={},desafioCount={},dispCount={},areaCount={};
+    const lD={},mqlD={},fatCount={},prazoCount={},dispCount={},areaCount={};
     // Contadores equivalentes para leads orgânicos (canal "Orgânico" no filtro da aba Funil)
-    const mqlDOrganic={},fatCountOrganic={},desafioCountOrganic={},dispCountOrganic={},areaCountOrganic={};
+    const mqlDOrganic={},fatCountOrganic={},prazoCountOrganic={},dispCountOrganic={},areaCountOrganic={};
     const leadsTemp={},lByAd={},lByCamp={},mqlByAd={},mqlByCamp={};
 
     // Extrai Ad ID puro quando o UTM_CONTENT é o próprio Ad ID numérico do Meta
@@ -509,14 +519,14 @@ async function loadData(force=false){
         const mql=isMQL(r);
         if(mql)mqlD[d]=(mqlD[d]||0)+1;
 
-        const area=(r["Qual sua área de atuação?"]||"").trim();
+        const area=canonArea(r["Qual sua área de atuação?"]);
         if(area)areaCount[area]=(areaCount[area]||0)+1;
 
         const fat=(r["Qual é o faturamento médio mensal do seu consultório?"]||"").trim();
         if(fat)fatCount[fat]=(fatCount[fat]||0)+1;
 
-        const desafio=(r["O que mais está te incomodando hoje que te fez buscar essa consultoria?"]||"").trim();
-        if(desafio)desafioCount[desafio]=(desafioCount[desafio]||0)+1;
+        const prazo=(r["Em qual prazo você pretende resolver esse cenário e implementar as mudanças necessárias?"]||"").trim();
+        if(prazo)prazoCount[prazo]=(prazoCount[prazo]||0)+1;
 
         const disp=(r["IMPORTANTE: AVISO"]||"").trim();
         if(disp)dispCount[disp]=(dispCount[disp]||0)+1;
@@ -556,23 +566,23 @@ async function loadData(force=false){
         const mqlO=isMQL(r);
         if(mqlO)mqlDOrganic[d]=(mqlDOrganic[d]||0)+1;
 
-        const areaO=(r["Qual sua área de atuação?"]||"").trim();
+        const areaO=canonArea(r["Qual sua área de atuação?"]);
         if(areaO)areaCountOrganic[areaO]=(areaCountOrganic[areaO]||0)+1;
 
         const fatO=(r["Qual é o faturamento médio mensal do seu consultório?"]||"").trim();
         if(fatO)fatCountOrganic[fatO]=(fatCountOrganic[fatO]||0)+1;
 
-        const desafioO=(r["O que mais está te incomodando hoje que te fez buscar essa consultoria?"]||"").trim();
-        if(desafioO)desafioCountOrganic[desafioO]=(desafioCountOrganic[desafioO]||0)+1;
+        const prazoO=(r["Em qual prazo você pretende resolver esse cenário e implementar as mudanças necessárias?"]||"").trim();
+        if(prazoO)prazoCountOrganic[prazoO]=(prazoCountOrganic[prazoO]||0)+1;
 
         const dispO=(r["IMPORTANTE: AVISO"]||"").trim();
         if(dispO)dispCountOrganic[dispO]=(dispCountOrganic[dispO]||0)+1;
       }
     }
     S.leadsD=lD;S.mqlD=mqlD;S.leadsFat=fatCount;
-    S.leadsDesafio=desafioCount;S.leadsDisp=dispCount;S.leadsArea=areaCount;
+    S.leadsPrazo=prazoCount;S.leadsDisp=dispCount;S.leadsArea=areaCount;
     S.mqlDOrganic=mqlDOrganic;S.leadsFatOrganic=fatCountOrganic;
-    S.leadsDesafioOrganic=desafioCountOrganic;S.leadsDispOrganic=dispCountOrganic;S.leadsAreaOrganic=areaCountOrganic;
+    S.leadsPrazoOrganic=prazoCountOrganic;S.leadsDispOrganic=dispCountOrganic;S.leadsAreaOrganic=areaCountOrganic;
     S.leadsTemp=leadsTemp;S.leadsByAd=lByAd;S.leadsByCamp=lByCamp;
     S.mqlByAd=mqlByAd;S.mqlByCamp=mqlByCamp;
 
@@ -1233,11 +1243,11 @@ function renderFunil(){
     for(const[d,n] of Object.entries(S.mqlDOrganic)){if(inRange(d))mqlTotal+=n;}
   }
 
-  // Breakdowns (área, faturamento, desafio, disponibilidade) do canal selecionado
-  const dataArea    =ch==="total"?mergeCounts(S.leadsArea,S.leadsAreaOrganic)      :ch==="organico"?S.leadsAreaOrganic    :S.leadsArea;
-  const dataFat      =ch==="total"?mergeCounts(S.leadsFat,S.leadsFatOrganic)       :ch==="organico"?S.leadsFatOrganic     :S.leadsFat;
-  const dataDesafio  =ch==="total"?mergeCounts(S.leadsDesafio,S.leadsDesafioOrganic):ch==="organico"?S.leadsDesafioOrganic:S.leadsDesafio;
-  const dataDisp     =ch==="total"?mergeCounts(S.leadsDisp,S.leadsDispOrganic)     :ch==="organico"?S.leadsDispOrganic    :S.leadsDisp;
+  // Breakdowns (área, faturamento, prazo, disponibilidade) do canal selecionado
+  const dataArea  =ch==="total"?mergeCounts(S.leadsArea,S.leadsAreaOrganic)  :ch==="organico"?S.leadsAreaOrganic  :S.leadsArea;
+  const dataFat   =ch==="total"?mergeCounts(S.leadsFat,S.leadsFatOrganic)    :ch==="organico"?S.leadsFatOrganic   :S.leadsFat;
+  const dataPrazo =ch==="total"?mergeCounts(S.leadsPrazo,S.leadsPrazoOrganic):ch==="organico"?S.leadsPrazoOrganic:S.leadsPrazo;
+  const dataDisp  =ch==="total"?mergeCounts(S.leadsDisp,S.leadsDispOrganic)  :ch==="organico"?S.leadsDispOrganic  :S.leadsDisp;
 
   // Faturamento médio mensal — ordem canônica (maior para menor)
   const FAT_ORDER=[
@@ -1248,6 +1258,13 @@ function renderFunil(){
     "De R$3 mil a R$10 mil",
     "Até R$3 mil",
   ];
+  const PRAZO_ORDER=[
+    "Quero começar imediatamente",
+    "Dentro de 30 dias",
+    "Dentro de 3 meses",
+    "Muito futuramente",
+  ];
+  const AREA_ORDER=[...AREA_CANON,"Outro"];
 
   function breakdown(data,order,title){
     const keys=order?order.filter(k=>data[k]>0):[...Object.keys(data)].sort((a,b)=>(data[b]||0)-(data[a]||0));
@@ -1293,9 +1310,9 @@ function renderFunil(){
       ${kpiCard("MQL",mqlTotal.toLocaleString("pt-BR"),`taxa: ${leadsTotal>0?fPct((mqlTotal/leadsTotal)*100):"—"}`,"#a78bfa")}
     </div>
     <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:14px">
-      ${breakdown(dataArea,null,"Área de atuação")}
+      ${breakdown(dataArea,AREA_ORDER,"Área de atuação")}
       ${breakdown(dataFat,FAT_ORDER,"Faturamento médio mensal")}
-      ${breakdown(dataDesafio,null,"Principal desafio")}
+      ${breakdown(dataPrazo,PRAZO_ORDER,"Prazo para resolver")}
       ${(()=>{
         const DISP_VALID=["Sim, estou comprometido(a) e vou honrar meu horário.","Prefiro não seguir agora, pode passar minha vaga para outra pessoa."];
         const dispFiltered=Object.fromEntries(DISP_VALID.filter(k=>dataDisp[k]).map(k=>[k,dataDisp[k]]));
